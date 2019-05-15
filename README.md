@@ -1,2 +1,2 @@
-# qbittorrent-tui
-text user interface for qbittorrent
+# qbittorrentui
+textual user interface for qbittorrent
