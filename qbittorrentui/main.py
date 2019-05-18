@@ -43,6 +43,7 @@ class Console(Main):
         self.torrent_window = None
 
     def refresh(self, *args, **kwargs):
+        logger.exception("Console refresh")
         self.torrent_list_window.refresh_torrent_list_window(*args, **kwargs)
 
     def run_loop(self, loop=None):
@@ -54,10 +55,17 @@ class Console(Main):
         # self.ui.set_terminal_properties(colors=256)
 
         self.torrent_list_window = TorrentListWindow(self, qbt_client=self._qbt_client)
-
         self.torrent_window = urwid.ListBox(urwid.SimpleFocusListWalker([urwid.Text("Welcome to the torrent window")]))
 
+        self.ui.signal_handler_setter(28, self.refresh)
+
+        self.ui.signal_init()
+
         palette = [
+            ('dark blue on default', 'dark blue', ''),
+            ('dark cyan on default', 'dark cyan', ''),
+            ('dark green on default', 'dark green', ''),
+            ('light red on default', 'light red', '',),
             ('selected', 'white,bold', 'dark blue', 'standout'),
             ('pg normal', '', ''),
             ('pg complete', '', 'dark blue'),

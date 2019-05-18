@@ -1,6 +1,5 @@
 import urwid
 from socket import getfqdn
-from humanize import naturalsize  # TODO: consider if this is the right library for this
 import logging
 
 
@@ -25,6 +24,59 @@ def pretty_time_delta(seconds):
         return '%dm%ds' % (minutes, seconds)
     else:
         return '%ds' % seconds
+
+
+def natural_file_size(value, binary=False, gnu=False, num_format='%.1f'):
+    """
+    Format a number of byteslike a human readable filesize (eg. 10 kB).
+
+    By
+    default, decimal suffixes (kB, MB) are used.  Passing binary=true will use
+    binary suffixes (KiB, MiB) are used and the base will be 2**10 instead of
+    10**3.  If ``gnu`` is True, the binary argument is ignored and GNU-style
+    (ls -sh style) prefixes are used (K, M) with the 2**10 definition.
+    Non-gnu modes are compatible with jinja2's ``filesizeformat`` filter.
+    source: https://github.com/luckydonald-forks/humanize/blob/master/humanize/filesize.py
+    """
+    suffixes = {
+        'decimal': ('kB', 'MB', 'GB', 'TB', 'PB', 'EB', 'ZB', 'YB'),
+        'binary': ('KiB', 'MiB', 'GiB', 'TiB', 'PiB', 'EiB', 'ZiB', 'YiB'),
+        'gnu': "KMGTPEZY",
+    }
+    if gnu:
+        suffix = suffixes['gnu']
+    elif binary:
+        suffix = suffixes['binary']
+    else:
+        suffix = suffixes['decimal']
+
+    base = 1024 if (gnu or binary) else 1000
+    num_of_bytes = float(value)
+
+    if num_of_bytes == 1 and not gnu:
+        return '1 Byte'
+    elif num_of_bytes < base and not gnu:
+        if num_of_bytes > 1000:
+            num_of_bytes = base
+        else:
+            return '%d Bytes' % num_of_bytes
+    elif num_of_bytes < base and gnu:
+        if num_of_bytes > 1000:
+            num_of_bytes = base
+        else:
+            return '%dB' % num_of_bytes
+
+    for i, s in enumerate(suffix):
+        unit = base ** (i+2)
+        # round up to next unit to avoid 4 digit size
+        if len(str(int(base * num_of_bytes / unit))) == 4 and num_of_bytes < unit:
+            num_of_bytes = unit
+        if num_of_bytes < unit:
+            break
+    if gnu:
+        return (num_format + '%s') % ((base * num_of_bytes / unit), s)
+    else:
+        return (num_format + ' %s') % ((base * num_of_bytes / unit), s)
 
 
 class TorrentListWindow(urwid.Frame):
@@ -100,6 +152,10 @@ class TorrentListWindow(urwid.Frame):
             super(TorrentListWindow.TorrentListTabsColumns, self).__init__(widget_list, dividechars, focus_column)
             self.__selected_tab_pos = 0
 
+        def move_cursor_to_coords(self, size, col, row):
+            """Don't change focus based on coords"""
+            return True
+
         def keypress(self, size, key):
             logger.info("%s received key '%s'" % (self.__class__.__name__, key))
             key = super(TorrentListWindow.TorrentListTabsColumns, self).keypress(size, key)
@@ -119,8 +175,9 @@ class TorrentListWindow(urwid.Frame):
                     'selected',
                     focus_map='selected')
                 self.contents[self.__selected_tab_pos] = (new_col, ('weight', 1, False))
-            urwid.emit_signal(self, 'change')
-            urwid.emit_signal(self, 'reset list focus')
+
+                urwid.emit_signal(self, 'change')
+                urwid.emit_signal(self, 'reset list focus')
             return key
 
     class TorrentList(urwid.ListBox):
@@ -148,10 +205,12 @@ class TorrentListWindow(urwid.Frame):
             return self.__hash
 
         def keypress(self, size, key):
+            logger.info("%s received key '%s'" % (self.__class__.__name__, key))
             return key
 
     class TorrentInfoColumns(urwid.Columns):
         def keypress(self, size, key):
+            logger.info("%s received key '%s'" % (self.__class__.__name__, key))
             return key
 
         def get_torrent_hash(self):
@@ -163,18 +222,28 @@ class TorrentListWindow(urwid.Frame):
                 return self[0][0].get_text()[0]
             return None
 
+    class DownloadProgressBar(urwid.ProgressBar):
+        def get_text(self):
+            return "%s %s" % (natural_file_size(self.current, gnu=True).rjust(7), ("(%s)" % self.get_percentage()).ljust(6))
+
+        def get_percentage(self):
+            percent = int(self.current * 100 / self.done)
+            return "%s%s" % (percent, "%")
+
     def render(self, size, focus=False):
-        self.__width = size[0]
+        # catch screen resize
+        if self.__width != size[0]:
+            self.__width = size[0]
+            # call to refresh on screen re-sizes
+            self.refresh_torrent_list_window_args('no alarm')
         logger.info("Rendering TorrentWindow")
-        # call to refresh on screen re-sizes
-        self.refresh_torrent_list_window_args('no alarm')
         return super(TorrentListWindow, self).render(size, focus)
 
     def keypress(self, size, key):
-        logger.info("Focus path: %s" % self.get_focus_path())
         logger.info("%s received key '%s'" % (self.__class__.__name__, key))
         key = super(TorrentListWindow, self).keypress(size, key)
-        logger.info("Focus path: %s" % self.get_focus_path())
+        if key in ('m', 'M'):
+            pass
         return key
 
     def reset_torrent_list_focus(self, *args):
@@ -203,7 +272,6 @@ class TorrentListWindow(urwid.Frame):
 
         # populate torrent info
         self.torrent_list_walker_w.clear()
-        status_filter = 'all'
         tab_pos = self.torrent_tabs_w._TorrentListTabsColumns__selected_tab_pos
         status_filter = self.torrent_tabs_w[tab_pos].get_text()[0].lower()
         self.torrent_list_walker_w.extend(self._build_torrent_list_for_walker_w(status_filter=status_filter))
@@ -221,7 +289,10 @@ class TorrentListWindow(urwid.Frame):
             if not user_data.get('no alarm'):
                 self.loop.set_alarm_in(sec=2, callback=self.refresh_torrent_list_window)
 
-        logger.info("Tabs focus: %s" % self.torrent_tabs_w.focus_col)
+        from time import time
+        if hasattr(self, 'last_refresh_time'):
+            logger.info("Time since last refresh: %.2f" % (time() - self.last_refresh_time))
+        self.last_refresh_time = time()
 
     def _build_title_bar_w(self):
         """
@@ -257,13 +328,13 @@ class TorrentListWindow(urwid.Frame):
         ''' ⯆[<dl rate>:<dl limit>:<dl size>] ⯅[<up rate>:<up limit>:<up size>] '''
         dl_up_text = "%s[%s/s %s/s (%s)]  %s[%s/s %s/s (%s)]" % \
                      ('\u25BC',
-                      naturalsize(tx_info.dl_info_speed, gnu=True).rjust(6),
-                      naturalsize(tx_info.dl_rate_limit, gnu=True),
-                      naturalsize(tx_info.dl_info_data, gnu=True),
+                      natural_file_size(tx_info.dl_info_speed, gnu=True).rjust(6),
+                      natural_file_size(tx_info.dl_rate_limit, gnu=True),
+                      natural_file_size(tx_info.dl_info_data, gnu=True),
                       '\u25B2',
-                      naturalsize(tx_info.up_info_speed, gnu=True).rjust(6),
-                      naturalsize(tx_info.up_rate_limit, gnu=True),
-                      naturalsize(tx_info.up_info_data, gnu=True),
+                      natural_file_size(tx_info.up_info_speed, gnu=True).rjust(6),
+                      natural_file_size(tx_info.up_rate_limit, gnu=True),
+                      natural_file_size(tx_info.up_info_data, gnu=True),
                       )
 
         left_column_text = "DHT: %s Status: %s" % (dht_nodes, status)
@@ -301,13 +372,25 @@ class TorrentListWindow(urwid.Frame):
 
         :return: list of torrent boxes
         """
-        state_map = {'pausedUP': "Completed",
-                     'uploading': 'Uploading',
-                     'stalledUP': 'Uploading',
+        state_map = {'pausedUP': 'Completed',
+                     'uploading': 'Seeding',
+                     'stalledUP': 'Seeding',
+                     'forcedUP': '[F] Seeding',
+                     'queuedDL': 'Queued',
                      'queuedUP': 'Queued',
-                     'pausedDL': "Paused",
+                     'pausedDL': 'Paused',
+                     'checkingDL': 'Checking',
+                     'checkingUP': 'Checking',
                      'downloading': 'Downloading',
-                     'stalledDL': "Downloading"}
+                     'forcedDL': '[F] Downloading',
+                     'metaDL': 'Downloading',
+                     'stalledDL': 'Stalled',
+                     'allocating': 'Allocating',
+                     'moving': 'Moving',
+                     'missingfiles': 'Missing Files',
+                     'error': 'Error',
+                     'queuedForChecking': 'Queued for Checking',
+                     'checkingResumeData': 'Checking Resume Data'}
 
         torrent_info = self.qbt_client.torrents_info(status_filter=status_filter)
         max_title_len = 0
@@ -319,17 +402,18 @@ class TorrentListWindow(urwid.Frame):
         for torrent in torrent_info:
             # build display-agnostic torrent info in list of Texts
             state = state_map[torrent.state] if torrent.state in state_map else torrent.state
-            size = (naturalsize(torrent.total_size, gnu=True) if torrent.total_size != -1 else 'Unk').rjust(6)
-            pb = urwid.ProgressBar('pg normal', 'pg complete', satt='pg smooth',
-                                   current=torrent.completed / torrent.total_size * 100,)
-            pb_text = pb.get_text().replace(' ', '').rjust(4)
-            dl_speed = "%s%s" % (naturalsize(torrent.dlspeed, gnu=True).rjust(6), '\u25BC')
-            up_speed = "%s%s" % (naturalsize(torrent.upspeed, gnu=True).rjust(6), '\u25B2')
-            amt_uploaded = "%s%s" % (naturalsize(torrent.uploaded, gnu=True).rjust(6), '\u21D1')
+            size = natural_file_size(torrent.size, gnu=True).rjust(6)
+            pb = TorrentListWindow.DownloadProgressBar('pg normal', 'pg complete',
+                                                       current=torrent.completed,
+                                                       done=torrent.size if torrent.size != 0 else 100)
+            pb_text = pb.get_percentage().rjust(4)
+            dl_speed = "%s%s" % (natural_file_size(torrent.dlspeed, gnu=True).rjust(6), '\u25BC')
+            up_speed = "%s%s" % (natural_file_size(torrent.upspeed, gnu=True).rjust(6), '\u25B2')
+            amt_uploaded = "%s%s" % (natural_file_size(torrent.uploaded, gnu=True).rjust(6), '\u21D1')
             ratio = "R %.2f" % torrent.ratio
             leech_num = "L %3d" % torrent.num_leechs
             seed_num = "S %3d" % torrent.num_seeds
-            eta = "ETA %s" % (pretty_time_delta(seconds=torrent.eta) if torrent.eta < 8640000 else '\u221E')
+            eta = "ETA %s" % (pretty_time_delta(seconds=torrent.eta) if torrent.eta < 8640000 else '\u221E').ljust(6)
             torrent_row_list = [
                 # state
                 (12, TorrentListWindow.SelectableText(state)),
@@ -388,8 +472,20 @@ class TorrentListWindow(urwid.Frame):
                 # build multi-line row for list
                 torrent_row_w = TorrentListWindow.TorrentRow([title_row_w, torrent_info_row_w])
 
+            # color based on state
+            if state in ["Downloading", "Queued"]:
+                attr = 'dark green on default'
+            elif state == "Paused":
+                attr = 'dark cyan on default'
+            elif state in ["Completed", '[F] Seeding', 'Stalled']:
+                attr = 'dark blue on default'
+            elif state == 'Error':
+                attr = 'light red on default'
+            else:
+                attr = ''
+
             # add row to list
             torrent_row_w._TorrentRow__hash = torrent.hash
-            torrent_list.append(urwid.AttrMap(torrent_row_w, '', focus_map='selected'))
+            torrent_list.append(urwid.AttrMap(torrent_row_w, attr, focus_map='selected'))
 
         return torrent_list if torrent_list else [TorrentListWindow.TorrentRow([TorrentListWindow.TorrentInfoColumns([])])]
