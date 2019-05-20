@@ -1,10 +1,24 @@
 qBittorrenTUI
 ===============
-Console UI for qBittorrent.
+Console UI for qBittorrent
 
-POC is working. Only supports basic information display right now. Does not yet support scrolling for more torrents than fit on the screen.
+![qbittorrentui screenshot 1](https://i.imgur.com/iGM3bPI.png)
 
-![Image of Yaktocat](https://i.imgur.com/QbRAKkE.png)
+![qbittorrentui screensho 2t](https://i.imgur.com/msRNi86.png)
+
+
+Features
+--------
+* View-only torrent list display
+* Dynamic display based on screen width
+
+Installation
+------------
+
+
+Configuration
+-------------
+
 
 Using the urwid framework.
 

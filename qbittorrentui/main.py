@@ -1,10 +1,8 @@
 import urwid
 import logging
 
-from qbittorrentapi import Client
-
-from windows import TorrentListWindow
-
+from connector import Connector, ConnectorError
+from windows import TorrentListWindow, ConnectWindow
 
 logging.basicConfig(level=logging.INFO,
                     format='[%(asctime)s] {%(name)s:%(lineno)d} %(levelname)s - %(message)s',
@@ -15,38 +13,22 @@ logger = logging.getLogger(__name__)
 
 class Main(object):
     def __init__(self):
-        self._qbt_client = Client()  # host='localhost:8091', username='admin', password='adminadmin')
+        super(Main, self).__init__()
+        self.torrent_client = Connector(host='localhost:8080', username='test', password='testtest')
 
-    def run_loop(self, loop):
-        try:
-            loop()
-        except Exception as e:
-            raise
-        finally:
-            pass
-
-
-class Run(object):
-    def __init__(self):
-        super(Run, self).__init__()
-
-    def __call__(self, *args, **kwargs):
-        console = Console()
-        console.run_loop()
-
-
-class Console(Main):
-    def __init__(self):
-        super(Console, self).__init__()
         self.ui = None
+        self.loop = None
+        self.connect_w = None
         self.torrent_list_window = None
         self.torrent_window = None
+        self.connect_window = None
+        self.torrent_options_window = None
 
     def refresh(self, *args, **kwargs):
-        logger.exception("Console refresh")
         self.torrent_list_window.refresh_torrent_list_window(*args, **kwargs)
 
-    def run_loop(self, loop=None):
+    def start(self):
+
         def handle_key(key):
             if key in ('q', 'Q'):
                 raise urwid.ExitMainLoop()
@@ -54,12 +36,15 @@ class Console(Main):
         self.ui = urwid.raw_display.Screen()
         # self.ui.set_terminal_properties(colors=256)
 
-        self.torrent_list_window = TorrentListWindow(self, qbt_client=self._qbt_client)
+        self.connect_w = urwid.Filler(ConnectWindow(main=self))
+        self.torrent_list_window = TorrentListWindow(main=self)
         self.torrent_window = urwid.ListBox(urwid.SimpleFocusListWalker([urwid.Text("Welcome to the torrent window")]))
-
-        self.ui.signal_handler_setter(28, self.refresh)
-
-        self.ui.signal_init()
+        self.connect_window = urwid.Overlay(top_w=urwid.LineBox(self.connect_w),
+                                            bottom_w=self.torrent_list_window,
+                                            align=urwid.CENTER,
+                                            width=50,
+                                            valign=urwid.MIDDLE,
+                                            height=15)
 
         palette = [
             ('dark blue on default', 'dark blue', ''),
@@ -87,28 +72,45 @@ class Console(Main):
             ('reversed', 'standout', ''),
         ]
 
-        loop = urwid.MainLoop(self.torrent_list_window,
-                              screen=self.ui,
-                              handle_mouse=False,
-                              unhandled_input=handle_key,
-                              palette=palette,
-                              event_loop=None,
-                              pop_ups=False,
-                              )
+        try:
+            self.torrent_client.connect()
+            first_window = self.torrent_list_window
+        except ConnectorError:
+            first_window = self.connect_window
+
+        self.loop = urwid.MainLoop(widget=first_window,
+                                   screen=self.ui,
+                                   handle_mouse=False,
+                                   unhandled_input=handle_key,
+                                   palette=palette,
+                                   event_loop=None,
+                                   pop_ups=True,
+                                   )
 
         # refresh window immediately
-        loop.set_alarm_in(sec=.01, callback=self.refresh)
+        self.loop.set_alarm_in(sec=.01, callback=self.refresh)
 
         # display TUI
-        super(Console, self).run_loop(loop.run)
+        self.loop.run()
+
+
+class Run(object):
+    def __init__(self):
+        super(Run, self).__init__()
+        self.main = Main()
+
+    def __call__(self, *args, **kwargs):
+        self.main.start()
 
 
 if __name__ == '__main__':
     try:
-        Run()()
+        run = Run()
+        MAIN = run.main
+        run()
     except:
         import sys
-        from pprint import pprint as pp
+
         exc_type, exc_value, tb = sys.exc_info()
         if tb is not None:
             prev = tb
@@ -116,5 +118,5 @@ if __name__ == '__main__':
             while curr is not None:
                 prev = curr
                 curr = curr.tb_next
-            pp(prev.tb_frame.f_locals)
+            print(prev.tb_frame.f_locals)
         raise

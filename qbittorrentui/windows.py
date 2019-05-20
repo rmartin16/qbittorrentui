@@ -1,7 +1,10 @@
 import urwid
 from socket import getfqdn
 import logging
+from attrdict import AttrDict
+import panwid
 
+from connector import Connector, ConnectorError, LoginFailed
 
 _APP_NAME = 'qBittorrenTUI'
 logger = logging.getLogger(__name__)
@@ -9,7 +12,6 @@ logger = logging.getLogger(__name__)
 
 # TODO: put this somewhere else
 def pretty_time_delta(seconds):
-
     seconds = int(seconds)
     days, seconds = divmod(seconds, 86400)
     hours, seconds = divmod(seconds, 3600)
@@ -67,7 +69,7 @@ def natural_file_size(value, binary=False, gnu=False, num_format='%.1f'):
             return '%dB' % num_of_bytes
 
     for i, s in enumerate(suffix):
-        unit = base ** (i+2)
+        unit = base ** (i + 2)
         # round up to next unit to avoid 4 digit size
         if len(str(int(base * num_of_bytes / unit))) == 4 and num_of_bytes < unit:
             num_of_bytes = unit
@@ -79,11 +81,118 @@ def natural_file_size(value, binary=False, gnu=False, num_format='%.1f'):
         return (num_format + ' %s') % ((base * num_of_bytes / unit), s)
 
 
+def log_keypress(obj, key):
+    logger.info("%s received key '%s'" % (obj.__class__.__name__, key))
+
+
+class ButtonLabel(urwid.SelectableIcon):
+    def set_text(self, label):
+        self.__super.set_text(label)
+        self._cursor_position = len(label) + 1
+
+
+class ButtonWithoutCursor(urwid.Button):
+    button_left = "["
+    button_right = "]"
+
+    def __init__(self, label, on_press=None, user_data=None):
+        self._label = ButtonLabel("")
+        cols = urwid.Columns([
+            ('fixed', len(self.button_left), urwid.Text(self.button_left)),
+            self._label,
+            ('fixed', len(self.button_right), urwid.Text(self.button_right))],
+            dividechars=1)
+        super(ButtonWithoutCursor, self).__init__(cols)
+
+        if on_press:
+            urwid.connect_signal(self, 'click', on_press, user_data)
+
+        self.set_label(label)
+
+
+class DownloadProgressBar(urwid.ProgressBar):
+    def get_text(self):
+        return "%s %s" % (natural_file_size(self.current, gnu=True).rjust(7),
+                          ("(%s)" % self.get_percentage()).ljust(6))
+
+    def get_percentage(self):
+        percent = int(self.current * 100 / self.done)
+        return "%s%s" % (percent, "%")
+
+
+class SelectableText(urwid.Text):
+    def selectable(self):
+        return True
+
+    @staticmethod
+    def keypress(self, size, key, *args, **kwargs):
+        return key
+
+
+class ConnectWindow(urwid.Pile):
+    def __init__(self, main):
+        self.main = main
+        self.client = main.torrent_client
+
+        self.error_w = urwid.Text("", align=urwid.CENTER)
+        self.hostname_w = urwid.Edit("Hostname: ", edit_text=self.client.host)
+        self.port_w = urwid.Edit("Port: ")
+        self.username_w = urwid.Edit("Username: ")
+        self.password_w = urwid.Edit("Password: ", mask='*')
+
+        super(ConnectWindow, self).__init__(
+            [
+                urwid.Text("Enter connection information",
+                           align=urwid.CENTER),
+                urwid.Divider(),
+                urwid.AttrMap(self.error_w, 'light red on default'),
+                urwid.Divider(),
+                self.hostname_w,
+                self.port_w,
+                self.username_w,
+                self.password_w,
+                urwid.Divider(),
+                urwid.Columns([
+                    urwid.Padding(urwid.Text("")),
+                    (6, urwid.AttrMap(ButtonWithoutCursor("OK",
+                                                          on_press=self.apply_settings),
+                                      '', focus_map='selected')),
+                    (10, urwid.AttrMap(ButtonWithoutCursor("Cancel",
+                                                           on_press=self.leave_app),
+                                       '', focus_map='selected')),
+                    urwid.Padding(urwid.Text("")),
+                ], dividechars=3),
+                urwid.Divider(),
+                urwid.Divider(),
+            ]
+        )
+
+    def leave_app(self, _):
+        raise urwid.ExitMainLoop
+
+    def apply_settings(self, args):
+        try:
+            port = self.port_w.get_edit_text()
+            self.client.connect(host="%s%s" % (self.hostname_w.get_edit_text(), ":%s" % port if port else ""),
+                                username=self.username_w.get_edit_text(),
+                                password=self.password_w.get_edit_text())
+            self.main.loop.widget = self.main.torrent_list_window
+            self.main.torrent_list_window.refresh_torrent_list_window_args('no alarm')
+        except LoginFailed:
+            self.error_w.set_text("Error: login failed")
+        except ConnectorError as e:
+            self.error_w.set_text("Error: %s" % e)
+
+
 class TorrentListWindow(urwid.Frame):
-    def __init__(self, console, qbt_client):
-        self.console = console
-        self.qbt_client = qbt_client
-        self.loop = None  # is set after first refresh
+    def __init__(self, main):
+        """
+
+        :param main:
+        :type main: main.Main()
+        """
+        self.main = main
+        self.client = main.torrent_client
         self.__width = None
 
         # initialize title and status bars
@@ -96,26 +205,26 @@ class TorrentListWindow(urwid.Frame):
 
         #  Set up torrent status tabs
         self.torrent_tabs_list = [
-            urwid.AttrMap(urwid.Filler(TorrentListWindow.SelectableText('All',
-                                                                        align=urwid.CENTER)), 'selected',
+            urwid.AttrMap(urwid.Filler(SelectableText('All',
+                                                      align=urwid.CENTER)), 'selected',
                           focus_map='selected'),
-            urwid.AttrMap(urwid.Filler(TorrentListWindow.SelectableText('Downloading',
-                                                                        align=urwid.CENTER)), '',
+            urwid.AttrMap(urwid.Filler(SelectableText('Downloading',
+                                                      align=urwid.CENTER)), '',
                           focus_map='selected'),
-            urwid.AttrMap(urwid.Filler(TorrentListWindow.SelectableText('Completed',
-                                                                        align=urwid.CENTER)), '',
+            urwid.AttrMap(urwid.Filler(SelectableText('Completed',
+                                                      align=urwid.CENTER)), '',
                           focus_map='selected'),
-            urwid.AttrMap(urwid.Filler(TorrentListWindow.SelectableText('Paused',
-                                                                        align=urwid.CENTER)), '',
+            urwid.AttrMap(urwid.Filler(SelectableText('Paused',
+                                                      align=urwid.CENTER)), '',
                           focus_map='selected'),
-            urwid.AttrMap(urwid.Filler(TorrentListWindow.SelectableText('Active',
-                                                                        align=urwid.CENTER)), '',
+            urwid.AttrMap(urwid.Filler(SelectableText('Active',
+                                                      align=urwid.CENTER)), '',
                           focus_map='selected'),
-            urwid.AttrMap(urwid.Filler(TorrentListWindow.SelectableText('Inactive',
-                                                                        align=urwid.CENTER)), '',
+            urwid.AttrMap(urwid.Filler(SelectableText('Inactive',
+                                                      align=urwid.CENTER)), '',
                           focus_map='selected'),
-            urwid.AttrMap(urwid.Filler(TorrentListWindow.SelectableText('Resumed',
-                                                                        align=urwid.CENTER)), '',
+            urwid.AttrMap(urwid.Filler(SelectableText('Resumed',
+                                                      align=urwid.CENTER)), '',
                           focus_map='selected')
         ]
         self.torrent_tabs_w = TorrentListWindow.TorrentListTabsColumns(self.torrent_tabs_list)
@@ -140,13 +249,6 @@ class TorrentListWindow(urwid.Frame):
                                                 body=self.torrent_list_body,
                                                 footer=self.status_bar_w)
 
-    class SelectableText(urwid.Text):
-        def selectable(self):
-            return True
-
-        def keypress(self, size, key, *args, **kwargs):
-            return key
-
     class TorrentListTabsColumns(urwid.Columns):
         def __init__(self, widget_list, dividechars=0, focus_column=None):
             super(TorrentListWindow.TorrentListTabsColumns, self).__init__(widget_list, dividechars, focus_column)
@@ -157,21 +259,21 @@ class TorrentListWindow(urwid.Frame):
             return True
 
         def keypress(self, size, key):
-            logger.info("%s received key '%s'" % (self.__class__.__name__, key))
+            log_keypress(self, key)
             key = super(TorrentListWindow.TorrentListTabsColumns, self).keypress(size, key)
 
             focused_tab_pos = self.focus_position
             if focused_tab_pos != self.__selected_tab_pos:
                 tab_text = self.contents[self.__selected_tab_pos][0].base_widget.get_text()[0]
                 new_col = urwid.AttrMap(
-                    urwid.Filler(TorrentListWindow.SelectableText(tab_text, align=urwid.CENTER)),
+                    urwid.Filler(SelectableText(tab_text, align=urwid.CENTER)),
                     '',
                     focus_map='selected')
                 self.contents[self.__selected_tab_pos] = (new_col, ('weight', 1, False))
                 self.__selected_tab_pos = focused_tab_pos
                 tab_text = self.contents[self.__selected_tab_pos][0].base_widget.get_text()[0]
                 new_col = urwid.AttrMap(
-                    urwid.Filler(TorrentListWindow.SelectableText(tab_text, align=urwid.CENTER)),
+                    urwid.Filler(SelectableText(tab_text, align=urwid.CENTER)),
                     'selected',
                     focus_map='selected')
                 self.contents[self.__selected_tab_pos] = (new_col, ('weight', 1, False))
@@ -182,12 +284,12 @@ class TorrentListWindow(urwid.Frame):
 
     class TorrentList(urwid.ListBox):
         def keypress(self, size, key):
-            logger.info("%s received key '%s'" % (self.__class__.__name__, key))
+            log_keypress(self, key)
             key = super(TorrentListWindow.TorrentList, self).keypress(size, key)
-            #if key == 'right':
-            #    self.loop.widget = self.console.torrent_window
+            # if key == 'right':
+            #    self.loop.widget = self.main.torrent_window
             #    return None
-            #else:
+            # else:
             return key
 
         def get_torrent_hash_for_focused_row(self):
@@ -197,20 +299,49 @@ class TorrentListWindow(urwid.Frame):
             return None
 
     class TorrentRow(urwid.Pile):
-        def __init__(self, widget_list, focus_item=None):
+        def __init__(self, main, widget_list, focus_item=None):
             self.__hash = None
+            self.main = main
             super(TorrentListWindow.TorrentRow, self).__init__(widget_list, focus_item)
+
+        def set_torrent_hash(self, torrent_hash):
+            self.__hash = torrent_hash
 
         def get_torrent_hash(self):
             return self.__hash
 
+        def open_torrent_options_window(self):
+
+            torrent_info = self.main.torrent_client.torrents_list(torrent_ids=self.get_torrent_hash())
+            torrent_name = ""
+            if torrent_info:
+                torrent_name = torrent_info[0].name
+
+            self.main.torrent_options_window = urwid.Overlay(
+                top_w=urwid.LineBox(
+                    urwid.Filler(
+                        TorrentOptions(main=self.main,
+                                       torrent_hash=self.get_torrent_hash())),
+                    title=torrent_name
+                ),
+                bottom_w=self.main.torrent_list_window,
+                align=urwid.CENTER,
+                width=(urwid.RELATIVE, 50),
+                valign=urwid.MIDDLE,
+                height=25,
+                min_width=75)
+
+            self.main.loop.widget = self.main.torrent_options_window
+
         def keypress(self, size, key):
-            logger.info("%s received key '%s'" % (self.__class__.__name__, key))
+            log_keypress(self, key)
+            if key == 'enter':
+                self.open_torrent_options_window()
             return key
 
     class TorrentInfoColumns(urwid.Columns):
         def keypress(self, size, key):
-            logger.info("%s received key '%s'" % (self.__class__.__name__, key))
+            log_keypress(self, key)
             return key
 
         def get_torrent_hash(self):
@@ -222,13 +353,12 @@ class TorrentListWindow(urwid.Frame):
                 return self[0][0].get_text()[0]
             return None
 
-    class DownloadProgressBar(urwid.ProgressBar):
-        def get_text(self):
-            return "%s %s" % (natural_file_size(self.current, gnu=True).rjust(7), ("(%s)" % self.get_percentage()).ljust(6))
-
-        def get_percentage(self):
-            percent = int(self.current * 100 / self.done)
-            return "%s%s" % (percent, "%")
+    @property
+    def width(self):
+        if self.__width:
+            return self.__width
+        else:
+            return self.main.get_cols_rows()[1]
 
     def render(self, size, focus=False):
         # catch screen resize
@@ -240,7 +370,7 @@ class TorrentListWindow(urwid.Frame):
         return super(TorrentListWindow, self).render(size, focus)
 
     def keypress(self, size, key):
-        logger.info("%s received key '%s'" % (self.__class__.__name__, key))
+        log_keypress(self, key)
         key = super(TorrentListWindow, self).keypress(size, key)
         if key in ('m', 'M'):
             pass
@@ -258,8 +388,6 @@ class TorrentListWindow(urwid.Frame):
     def refresh_torrent_list_window(self, loop=None, user_data=None):
         logger.info("Refreshing torrent list")
 
-        if loop is not None:
-            self.loop = loop
         if user_data is None:
             user_data = {}
 
@@ -284,11 +412,11 @@ class TorrentListWindow(urwid.Frame):
         else:
             self.torrent_list_walker_w.set_focus(0)
 
-        if self.loop is not None:
-            # schedule next refresh
-            if not user_data.get('no alarm'):
-                self.loop.set_alarm_in(sec=2, callback=self.refresh_torrent_list_window)
+        # schedule next refresh
+        if not user_data.get('no alarm'):
+            self.main.loop.set_alarm_in(sec=2, callback=self.refresh_torrent_list_window)
 
+        # TODO: delete
         from time import time
         if hasattr(self, 'last_refresh_time'):
             logger.info("Time since last refresh: %.2f" % (time() - self.last_refresh_time))
@@ -301,11 +429,15 @@ class TorrentListWindow(urwid.Frame):
         :return: string title
         """
         app_name = _APP_NAME
-        qbt_version = self.qbt_client.app_version()
+        try:
+            torrent_manager_version = self.client.version()
+            connection_port = self.client.connection_port()
+        except ConnectorError:
+            torrent_manager_version = ""
+            connection_port = ""
         hostname = getfqdn()
-        webui_port = self.qbt_client.app_preferences().web_ui_port
         return urwid.Padding(
-            urwid.Text("%s (%s) %s:%s" % (app_name, qbt_version, hostname, webui_port),
+            urwid.Text("%s (%s) %s:%s" % (app_name, torrent_manager_version, hostname, connection_port),
                        align=urwid.CENTER),
             width=urwid.RELATIVE_100)
 
@@ -319,34 +451,42 @@ class TorrentListWindow(urwid.Frame):
 
         :return: string status
         """
-        tx_info = self.qbt_client.transfer_info()
+        try:
+            tx_info = self.client.transfer_info()
+        except ConnectorError:
+            tx_info = AttrDict({'connection_status': 'disconnected'})
 
-        status = tx_info.connection_status
+        status = tx_info.get('connection_status')
 
-        dht_nodes = tx_info.dht_nodes
+        dht_nodes = tx_info.get('dht_nodes', '')
 
         ''' ⯆[<dl rate>:<dl limit>:<dl size>] ⯅[<up rate>:<up limit>:<up size>] '''
-        dl_up_text = "%s[%s/s %s/s (%s)]  %s[%s/s %s/s (%s)]" % \
-                     ('\u25BC',
-                      natural_file_size(tx_info.dl_info_speed, gnu=True).rjust(6),
-                      natural_file_size(tx_info.dl_rate_limit, gnu=True),
-                      natural_file_size(tx_info.dl_info_data, gnu=True),
-                      '\u25B2',
-                      natural_file_size(tx_info.up_info_speed, gnu=True).rjust(6),
-                      natural_file_size(tx_info.up_rate_limit, gnu=True),
-                      natural_file_size(tx_info.up_info_data, gnu=True),
-                      )
+        dl_up_text = ("%s/s%s [%s%s] (%s) %s/s%s [%s%s] (%s)" %
+                      (natural_file_size(tx_info.dl_info_speed, gnu=True).rjust(6),
+                       '\u25BC',
+                       natural_file_size(tx_info.dl_rate_limit, gnu=True) if tx_info.dl_rate_limit not in [0,
+                                                                                                           ''] else '',
+                       '/s' if tx_info.dl_rate_limit not in [0, ''] else '',
+                       natural_file_size(tx_info.dl_info_data, gnu=True),
+                       natural_file_size(tx_info.up_info_speed, gnu=True).rjust(6),
+                       '\u25B2',
+                       natural_file_size(tx_info.up_rate_limit, gnu=True) if tx_info.up_rate_limit not in [0,
+                                                                                                           ''] else '',
+                       '/s' if tx_info.up_rate_limit not in [0, ''] else '',
+                       natural_file_size(tx_info.up_info_data, gnu=True),
+                       )
+                      ) if tx_info.get('dl_rate_limit', '') != '' else ''
 
-        left_column_text = "DHT: %s Status: %s" % (dht_nodes, status)
+        left_column_text = "%sStatus: %s" % (("DHT: %s " % dht_nodes) if dht_nodes is not "" else "", status)
         right_column_text = "%s" % dl_up_text
         total_len = len(left_column_text) + len(right_column_text)
 
         w = urwid.Columns(
             [('weight',
-              (len(left_column_text)/total_len)*100,
+              (len(left_column_text) / total_len) * 100,
               urwid.Text(left_column_text, align=urwid.LEFT, wrap=urwid.CLIP)),
              ('weight',
-              (len(right_column_text)/total_len)*100,
+              (len(right_column_text) / total_len) * 100,
               urwid.Padding(urwid.Text(right_column_text, align=urwid.RIGHT, wrap=urwid.CLIP)))
              ],
             dividechars=1,
@@ -392,20 +532,24 @@ class TorrentListWindow(urwid.Frame):
                      'queuedForChecking': 'Queued for Checking',
                      'checkingResumeData': 'Checking Resume Data'}
 
-        torrent_info = self.qbt_client.torrents_info(status_filter=status_filter)
+        try:
+            torrents_info = self.client.torrents_list(status_filter=status_filter)
+        except ConnectorError:
+            torrents_info = []
+
         max_title_len = 0
-        if len(torrent_info) != 0:
-            max_title_len = max(map(len, [torrent.name for torrent in torrent_info]))
+        if len(torrents_info) != 0:
+            max_title_len = max(map(len, [torrent.name for torrent in torrents_info]))
         max_title_len = min(max_title_len, 170)
 
         torrent_list = []
-        for torrent in torrent_info:
+        for torrent in torrents_info:
             # build display-agnostic torrent info in list of Texts
             state = state_map[torrent.state] if torrent.state in state_map else torrent.state
             size = natural_file_size(torrent.size, gnu=True).rjust(6)
-            pb = TorrentListWindow.DownloadProgressBar('pg normal', 'pg complete',
-                                                       current=torrent.completed,
-                                                       done=torrent.size if torrent.size != 0 else 100)
+            pb = DownloadProgressBar('pg normal', 'pg complete',
+                                     current=torrent.completed,
+                                     done=torrent.size if torrent.size != 0 else 100)
             pb_text = pb.get_percentage().rjust(4)
             dl_speed = "%s%s" % (natural_file_size(torrent.dlspeed, gnu=True).rjust(6), '\u25BC')
             up_speed = "%s%s" % (natural_file_size(torrent.upspeed, gnu=True).rjust(6), '\u25B2')
@@ -416,53 +560,55 @@ class TorrentListWindow(urwid.Frame):
             eta = "ETA %s" % (pretty_time_delta(seconds=torrent.eta) if torrent.eta < 8640000 else '\u221E').ljust(6)
             torrent_row_list = [
                 # state
-                (12, TorrentListWindow.SelectableText(state)),
+                (12, SelectableText(state)),
                 # size
-                (len(size), TorrentListWindow.SelectableText(size)),
+                (len(size), SelectableText(size)),
                 # progress percentage
-                (len(pb_text), TorrentListWindow.SelectableText(pb_text)),
+                (len(pb_text), SelectableText(pb_text)),
                 # dl speed
-                (len(dl_speed), TorrentListWindow.SelectableText(dl_speed)),
+                (len(dl_speed), SelectableText(dl_speed)),
                 # up speed
-                (len(up_speed), TorrentListWindow.SelectableText(up_speed)),
+                (len(up_speed), SelectableText(up_speed)),
                 # amount uploaded
-                (len(amt_uploaded), TorrentListWindow.SelectableText(amt_uploaded)),
+                (len(amt_uploaded), SelectableText(amt_uploaded)),
                 # share ratio
-                (len(ratio), TorrentListWindow.SelectableText(ratio)),
+                (len(ratio), SelectableText(ratio)),
                 # seeders
-                (len(seed_num), TorrentListWindow.SelectableText(seed_num)),
+                (len(seed_num), SelectableText(seed_num)),
                 # leechers
-                (len(leech_num), TorrentListWindow.SelectableText(leech_num)),
+                (len(leech_num), SelectableText(leech_num)),
                 # ETA
-                (10, TorrentListWindow.SelectableText(eta))
+                (10, SelectableText(eta))
             ]
 
             # calculate length (should be the same for all torrent row lists)
-            info_len = sum([col[0]+1 for col in torrent_row_list])
+            info_len = sum([col[0] + 1 for col in torrent_row_list])
 
             # add extra info
-            torrent_row_list.append(('pack',  TorrentListWindow.SelectableText(torrent.category)))
+            torrent_row_list.append(('pack', SelectableText(torrent.category)))
 
             # Additional Texts to add dependent on display
-            title_w = TorrentListWindow.SelectableText(torrent.name, wrap=urwid.CLIP)
+            title_w = SelectableText(torrent.name, wrap=urwid.CLIP)
 
             # define when a wide display takes effect
             wide_width = max_title_len + info_len
 
             # build wide display
-            if self.__width >= wide_width:  # build wide list
+            if self.width >= wide_width:
                 pb_bar_width = 40
                 # replace progress bar
-                if self.__width >= (wide_width+pb_bar_width-len(pb_text)):
+                if self.__width >= (wide_width + pb_bar_width - len(pb_text)):
                     torrent_row_list[2] = (pb_bar_width, pb)
                 # add torrent title to beginning of row
                 torrent_row_list.insert(0, (max_title_len, title_w))
                 # build columns
-                torrent_row_w = TorrentListWindow.TorrentRow(
-                    [TorrentListWindow.TorrentInfoColumns(torrent_row_list, dividechars=1)])
+                torrent_row_w = TorrentListWindow.TorrentRow(self.main,
+                                                             [TorrentListWindow.TorrentInfoColumns(torrent_row_list,
+                                                                                                   dividechars=1)
+                                                              ])
 
             # build compact display
-            if self.__width < wide_width:
+            if self.width < wide_width:
                 # build torrent row
                 title_row_w = TorrentListWindow.TorrentInfoColumns([urwid.Padding(title_w)])
                 # insert spacer for torrent info row
@@ -470,14 +616,14 @@ class TorrentListWindow(urwid.Frame):
                 # build torrent info row
                 torrent_info_row_w = TorrentListWindow.TorrentInfoColumns(torrent_row_list, dividechars=1)
                 # build multi-line row for list
-                torrent_row_w = TorrentListWindow.TorrentRow([title_row_w, torrent_info_row_w])
+                torrent_row_w = TorrentListWindow.TorrentRow(self.main, [title_row_w, torrent_info_row_w])
 
             # color based on state
-            if state in ["Downloading", "Queued"]:
+            if state in ["Downloading", "Queued", "Stalled"]:
                 attr = 'dark green on default'
             elif state == "Paused":
                 attr = 'dark cyan on default'
-            elif state in ["Completed", '[F] Seeding', 'Stalled']:
+            elif state in ["Completed", '[F] Seeding', 'Seeding']:
                 attr = 'dark blue on default'
             elif state == 'Error':
                 attr = 'light red on default'
@@ -485,7 +631,242 @@ class TorrentListWindow(urwid.Frame):
                 attr = ''
 
             # add row to list
-            torrent_row_w._TorrentRow__hash = torrent.hash
+            torrent_row_w.set_torrent_hash(torrent.hash)
             torrent_list.append(urwid.AttrMap(torrent_row_w, attr, focus_map='selected'))
 
-        return torrent_list if torrent_list else [TorrentListWindow.TorrentRow([TorrentListWindow.TorrentInfoColumns([])])]
+        return torrent_list if torrent_list else [
+            TorrentListWindow.TorrentRow(self.main, [TorrentListWindow.TorrentInfoColumns([])])]
+
+
+class TorrentOptions(urwid.Pile):
+    client: Connector
+
+    def __init__(self, main, torrent_hash):
+        self.torrent_hash = torrent_hash
+        self.main = main
+        self.client = main.torrent_client
+
+        self.torrent_info = self.client.torrents_list(torrent_ids=self.torrent_hash)
+        if self.torrent_info:
+            self.torrent_info = self.torrent_info[0]
+        self.torrent_properties = self.client.torrent_properties(torrent_id=self.torrent_hash)
+
+        self.delete_files_w = None
+
+        categories = {x: x for x in list(self.client.torrents_categories().keys())}
+        categories["<no category>"] = "<no category>"
+
+        self.original_location = self.torrent_properties.save_path
+        self.location_w = urwid.Edit(caption="Location: ",
+                                     edit_text=self.original_location)
+        self.original_name = self.torrent_info.name
+        self.rename_w = urwid.Edit(caption="Rename: ",
+                                   edit_text=self.original_name)
+        self.original_autotmm_state = self.torrent_info.auto_tmm
+        self.autotmm_w = urwid.CheckBox("Automatic Torrent Management",
+                                        state=self.original_autotmm_state)
+        self.original_super_seeding_state = self.torrent_info.super_seeding
+        self.super_seeding_w = urwid.CheckBox("Super Seeding Mode",
+                                              state=self.original_super_seeding_state)
+        self.original_upload_rate_limit = self.torrent_info.up_limit
+        self.upload_rate_limit_w = urwid.IntEdit(caption="Upload Rate Limit (Kib/s)  : ",
+                                                 default=int(
+                                                     self.original_upload_rate_limit / 1024) if self.original_upload_rate_limit != -1 else "")
+        self.original_download_rate_limit = self.torrent_info.dl_limit
+        self.download_rate_limit_w = urwid.IntEdit(caption="Download Rate Limit (Kib/s): ",
+                                                   default=int(
+                                                       self.original_download_rate_limit / 1024) if self.original_download_rate_limit != -1 else "")
+        # TODO: accomomdate share ratio and share time
+        self.share_ratio_dropdown_w = panwid.Dropdown(items=[("Global Limit", -2), ("Unlimited", -1), ("Specify", 0)],
+                                                      label="Share Ratio Limit: ",
+                                                      default=self.torrent_info.ratio_limit if self.torrent_info.ratio_limit in [
+                                                          -2, -1] else 0)
+        self.original_category = self.torrent_info.category if self.torrent_info.category != "" else "<no category>"
+        self.category_w = panwid.Dropdown(items=categories,
+                                          label="Category",
+                                          default=self.original_category,
+                                          auto_complete=True)
+
+        super(TorrentOptions, self).__init__(
+            [
+                urwid.Divider(),
+                urwid.Columns(
+                    [
+                        urwid.Padding(urwid.Text('')),
+                        (10, urwid.AttrMap(ButtonWithoutCursor("Resume",
+                                                               on_press=self.resume_torrent),
+                                           '', focus_map='selected')),
+                        (16, urwid.AttrMap(ButtonWithoutCursor("Force Resume",
+                                                               on_press=self.force_resume_torrent),
+                                           '', focus_map='selected')),
+                        (9, urwid.AttrMap(ButtonWithoutCursor("Pause",
+                                                              on_press=self.pause_torrent),
+                                          '', focus_map='selected')),
+                        urwid.Padding(urwid.Text('')),
+                    ],
+                    dividechars=2
+                ),
+                urwid.Divider(),
+                urwid.Columns(
+                    [
+                        urwid.Padding(urwid.Text('')),
+                        (10, urwid.AttrMap(ButtonWithoutCursor("Delete",
+                                                               on_press=self.delete_torrent),
+                                           '', focus_map='selected')),
+                        (11, urwid.AttrMap(ButtonWithoutCursor("Recheck",
+                                                               on_press=self.recheck_torrent),
+                                           '', focus_map='selected')),
+                        (14, urwid.AttrMap(ButtonWithoutCursor("Reannounce",
+                                                               on_press=self.reannounce_torrent),
+                                           '', focus_map='selected')),
+                        urwid.Padding(urwid.Text('')),
+                    ],
+                    dividechars=2
+                ),
+                urwid.Divider(),
+                self.location_w,
+                urwid.Divider(),
+                self.rename_w,
+                urwid.Divider(),
+                urwid.Columns(
+                    [
+                        urwid.Padding(urwid.Text('')),
+                        (33, self.autotmm_w),
+                        (23, self.super_seeding_w),
+                        urwid.Padding(urwid.Text('')),
+                    ],
+                    dividechars=2
+                ),
+                urwid.Divider(),
+                self.share_ratio_dropdown_w,
+                urwid.Divider(),
+                self.upload_rate_limit_w,
+                self.download_rate_limit_w,
+                urwid.Divider(),
+                self.category_w,
+                urwid.Divider(),
+                urwid.Divider(),
+                urwid.Columns(
+                    [
+                        urwid.Padding(urwid.Text('')),
+                        (6, urwid.AttrMap(ButtonWithoutCursor("OK",
+                                                              on_press=self.apply_settings),
+                                          '', focus_map='selected')),
+                        (10, urwid.AttrMap(ButtonWithoutCursor("Cancel",
+                                                               on_press=self.close_window),
+                                           '', focus_map='selected'))
+                    ],
+                    dividechars=2,
+                )
+            ]
+        )
+
+    def apply_settings(self, b):
+
+        new_location = self.location_w.get_edit_text()
+        new_name = self.rename_w.get_edit_text()
+        new_autotmm_state = self.autotmm_w.get_state()
+        new_super_seeding_state = self.super_seeding_w.get_state()
+        new_upload_rate_limit = int(self.upload_rate_limit_w.get_edit_text()) * 1024
+        new_download_rate_limit = int(self.download_rate_limit_w.get_edit_text()) * 1024
+        new_category = self.category_w.selected_label
+
+        if new_location != self.original_location:
+            logger.info("Setting new location: %s (%s)" % (new_location, self.torrent_hash))
+            self.client.torrents_set_location(location=new_location, torrent_ids=self.torrent_hash)
+
+        if new_name != self.original_name:
+            logger.info("Setting new name: %s (%s)" % (new_name, self.torrent_hash))
+            self.client.torrent_rename(new_name=new_name, torrent_id=self.torrent_info)
+
+        if new_autotmm_state is not self.original_autotmm_state:
+            logger.info("Setting Auto TMM: %s (%s)" % (new_autotmm_state, self.torrent_hash))
+            self.client.torrents_set_automatic_torrent_management(enable=new_autotmm_state,
+                                                                  torrent_ids=self.torrent_hash)
+
+        if new_super_seeding_state is not self.original_super_seeding_state:
+            logger.info("Setting super seeding: %s (%s)" % (new_super_seeding_state, self.torrent_hash))
+            self.client.torrents_set_super_seeding(enable=new_super_seeding_state, torrent_ids=self.torrent_hash)
+
+        if new_upload_rate_limit != self.original_upload_rate_limit:
+            logger.info("Setting new upload rate: %s (%s)" % (new_upload_rate_limit, self.torrent_hash))
+            self.client.torrents_set_upload_limit(limit=new_upload_rate_limit, torrent_ids=self.torrent_hash)
+
+        if new_download_rate_limit != self.original_download_rate_limit:
+            logger.info("Setting new download rate: %s (%s)" % (new_download_rate_limit, self.torrent_hash))
+            self.client.torrents_set_download_limit(limit=new_download_rate_limit, torrent_ids=self.torrent_hash)
+
+        if new_category != self.original_category:
+            if new_category == '<no category>':
+                new_category = ""
+            logger.info("Setting new category: %s (%s)" % (new_category, self.torrent_hash))
+            self.client.torrents_set_category(category=new_category, torrent_ids=self.torrent_hash)
+
+        self.reset_screen_to_torrent_list_window()
+
+    def close_window(self, b):
+        self.reset_screen_to_torrent_list_window()
+
+    def resume_torrent(self, b):
+        self.client.torrents_resume(torrent_ids=self.torrent_hash)
+
+    def force_resume_torrent(self, b):
+        self.client.torrents_force_resume(torrent_ids=self.torrent_hash)
+
+    def delete_torrent(self, b):
+        self.delete_files_w = urwid.CheckBox(label="Delete Files")
+        self.main.loop.widget = urwid.Overlay(
+            top_w=urwid.LineBox(urwid.Filler(urwid.Pile(
+                [
+                    urwid.Divider(),
+                    self.delete_files_w,
+                    urwid.Divider(),
+                    urwid.Columns(
+                        [
+                            urwid.Padding(urwid.Text('')),
+                            (6, urwid.AttrMap(ButtonWithoutCursor("OK",
+                                                                  on_press=self.confirm_delete),
+                                              '', focus_map='selected')),
+                            (10, urwid.AttrMap(ButtonWithoutCursor("Cancel",
+                                                                   on_press=self.close_delete_dialog),
+                                               '', focus_map='selected'))
+                        ],
+                        dividechars=2,
+                    ),
+                ]
+            ))),
+            bottom_w=self.main.torrent_options_window,
+            align=urwid.CENTER,
+            valign=urwid.MIDDLE,
+            width=30,
+            height=10,
+            min_width=20
+        )
+
+    def confirm_delete(self, b):
+        delete_files = self.delete_files_w.get_state()
+        self.client.torrents_delete(torrent_ids=self.torrent_hash, delete_files=delete_files)
+        self.reset_screen_to_torrent_list_window()
+
+    def close_delete_dialog(self, b):
+        self.main.loop.widget = self.main.torrent_options_window
+
+    def pause_torrent(self, b):
+        self.client.torrents_pause(torrent_ids=self.torrent_hash)
+
+    def recheck_torrent(self, b):
+        self.client.torrents_recheck(torrent_ids=self.torrent_hash)
+
+    def reannounce_torrent(self, b):
+        self.client.torrents_reannounce(torrent_ids=self.torrent_hash)
+
+    def reset_screen_to_torrent_list_window(self):
+        self.main.torrent_list_window.refresh_torrent_list_window_args('no alarm')
+        self.main.loop.widget = self.main.torrent_list_window
+
+    def keypress(self, size, key):
+        log_keypress(self, key)
+        key = super(TorrentOptions, self).keypress(size, key)
+        if key == 'esc':
+            self.reset_screen_to_torrent_list_window()
+        return key

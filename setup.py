@@ -1,13 +1,32 @@
-from setuptools import setup
+from setuptools import setup, find_packages
+
+with open("README.md", "r") as fh:
+    long_description = fh.read()
 
 setup(
     name='qbittorrentui',
     version='0.1',
-    packages=[''],
-    package_dir={'': 'qbittorrentui'},
+    packages=find_packages(exclude=["*.tests", "*.tests.*", "tests.*", "tests"]),
+    include_package_data=True,
+    install_requires=['urwid==2.0.1',
+                      'attrdict<=2.0.1,>=2.0.0',
+                      'panwid==0.2.5',
+                      'qbittorrent-api',
+                      ],
     url='https://github.com/rmartin16/qbittorrentui',
-    license='GNU General Public License v3.0',
-    author='Russell',
-    author_email='',
-    description='Console UI for qBittorrent v4.1+'
+    author='Russell Martin',
+    author_email='rmartin16@gmail.com',
+    zip_safe=False,
+    license='GPL-3',
+    description='Console UI for qBittorrent v4.1+',
+    long_description=long_description,
+    long_description_content_type="text/markdown",
+    keywords='qbittorrent console terminal TUI text',
+    classifiers=["Programming Language :: Python :: 3.7",
+                 "Programming Language :: Python :: 3.6",
+                 "Environment :: Console",
+                 'License :: OSI Approved :: GNU General Public License v3 (GPLv3)',
+                 "Topic :: Communications :: File Sharing",
+                 "Topic :: Utilities",
+                 ]
 )
