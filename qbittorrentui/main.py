@@ -1,13 +1,16 @@
 import urwid
 import logging
 
-from connector import Connector, ConnectorError
-from windows import TorrentListWindow, ConnectWindow
+from qbittorrentui.connector import Connector, ConnectorError
+from qbittorrentui.windows import TorrentListWindow, ConnectWindow
 
-logging.basicConfig(level=logging.INFO,
-                    format='[%(asctime)s] {%(name)s:%(lineno)d} %(levelname)s - %(message)s',
-                    filename='/home/user/output.txt',
-                    filemode='w')
+try:
+    logging.basicConfig(level=logging.INFO,
+                        format='[%(asctime)s] {%(name)s:%(lineno)d} %(levelname)s - %(message)s',
+                        filename='/home/user/output.txt',
+                        filemode='w')
+except Exception:
+    logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger(__name__)
 
 
@@ -94,23 +97,11 @@ class Main(object):
         self.loop.run()
 
 
-class Run(object):
-    def __init__(self):
-        super(Run, self).__init__()
-        self.main = Main()
-
-    def __call__(self, *args, **kwargs):
-        self.main.start()
-
-
-if __name__ == '__main__':
+def run():
     try:
-        run = Run()
-        MAIN = run.main
-        run()
+        Main().start()
     except:
         import sys
-
         exc_type, exc_value, tb = sys.exc_info()
         if tb is not None:
             prev = tb
@@ -120,3 +111,7 @@ if __name__ == '__main__':
                 curr = curr.tb_next
             print(prev.tb_frame.f_locals)
         raise
+
+
+if __name__ == '__main__':
+    run()

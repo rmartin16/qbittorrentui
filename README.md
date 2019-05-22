@@ -14,7 +14,11 @@ Features
 
 Installation
 ------------
+```bash
+pip install git+https://github.com/rmartin16/qbittorrentui.git
 
+python -c 'import qbittorrentui; qbittorrentui.run()'
+```
 
 Configuration
 -------------

@@ -4,7 +4,7 @@ import logging
 from attrdict import AttrDict
 import panwid
 
-from connector import Connector, ConnectorError, LoginFailed
+from qbittorrentui.connector import Connector, ConnectorError, LoginFailed
 
 _APP_NAME = 'qBittorrenTUI'
 logger = logging.getLogger(__name__)
@@ -102,7 +102,7 @@ class ButtonWithoutCursor(urwid.Button):
             self._label,
             ('fixed', len(self.button_right), urwid.Text(self.button_right))],
             dividechars=1)
-        super(ButtonWithoutCursor, self).__init__(cols)
+        super(urwid.Button, self).__init__(cols)
 
         if on_press:
             urwid.connect_signal(self, 'click', on_press, user_data)
@@ -125,7 +125,7 @@ class SelectableText(urwid.Text):
         return True
 
     @staticmethod
-    def keypress(self, size, key, *args, **kwargs):
+    def keypress(size, key, *args, **kwargs):
         return key
 
 
