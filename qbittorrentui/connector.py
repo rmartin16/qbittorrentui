@@ -168,5 +168,10 @@ class Connector:
             self._qbt_client.torrents_set_category(category=category, hashes=torrent_ids)
 
     @connection_required
+    def sync_maindata(self, rid):
+        if self._client_type is ClientType.qbittorrent:
+            return self._qbt_client.sync_maindata(rid)
+
+    @connection_required
     def api_wrapper(self, api_endpoint, **kwargs):
         return getattr(self._qbt_client, api_endpoint)(**kwargs)

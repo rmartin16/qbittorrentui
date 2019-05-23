@@ -1,8 +1,12 @@
 import urwid
 import logging
+import asyncio
 
-from qbittorrentui.connector import Connector, ConnectorError
-from qbittorrentui.windows import TorrentListWindow, ConnectWindow
+from qbittorrentui.connector import Connector
+from qbittorrentui.connector import ConnectorError
+from qbittorrentui.windows import TorrentListWindow
+from qbittorrentui.windows import ConnectWindow
+import qbittorrentui.poll
 
 try:
     logging.basicConfig(level=logging.INFO,
@@ -28,20 +32,25 @@ class Main(object):
         self.torrent_options_window = None
 
     def refresh(self, *args, **kwargs):
-        self.torrent_list_window.refresh_torrent_list_window(*args, **kwargs)
+        self.torrent_list_window.refresh_torrent_list_window(args, kwargs)
+
+    async def log_output(self):
+        logger.info("async output")
+        await asyncio.sleep(3)
+        asyncio.create_task(self.log_output())
 
     def start(self):
 
-        def handle_key(key):
+        def unhandled_input(key):
             if key in ('q', 'Q'):
                 raise urwid.ExitMainLoop()
 
         self.ui = urwid.raw_display.Screen()
-        # self.ui.set_terminal_properties(colors=256)
+        self.ui.set_terminal_properties(colors=256)
 
         self.connect_w = urwid.Filler(ConnectWindow(main=self))
         self.torrent_list_window = TorrentListWindow(main=self)
-        self.torrent_window = urwid.ListBox(urwid.SimpleFocusListWalker([urwid.Text("Welcome to the torrent window")]))
+        # self.torrent_window = urwid.ListBox(urwid.SimpleFocusListWalker([urwid.Text("Welcome to the torrent window")]))
         self.connect_window = urwid.Overlay(top_w=urwid.LineBox(self.connect_w),
                                             bottom_w=self.torrent_list_window,
                                             align=urwid.CENTER,
@@ -81,26 +90,33 @@ class Main(object):
         except ConnectorError:
             first_window = self.connect_window
 
+        logger.info("start async loop")
+        self.aioloop = asyncio.get_event_loop()
+        self.Poller = qbittorrentui.poll.ClientPoller(self)
+        self.aioloop.create_task(self.Poller.start())
+
+        logger.info("create urwid loop")
         self.loop = urwid.MainLoop(widget=first_window,
                                    screen=self.ui,
                                    handle_mouse=False,
-                                   unhandled_input=handle_key,
+                                   unhandled_input=unhandled_input,
                                    palette=palette,
-                                   event_loop=None,
+                                   event_loop=urwid.AsyncioEventLoop(loop=self.aioloop),
                                    pop_ups=True,
                                    )
 
         # refresh window immediately
-        self.loop.set_alarm_in(sec=.01, callback=self.refresh)
+        # self.loop.set_alarm_in(sec=.01, callback=self.refresh)
 
         # display TUI
+        logger.info("start urwid loop")
         self.loop.run()
 
 
 def run():
     try:
         Main().start()
-    except:
+    except Exception:
         import sys
         exc_type, exc_value, tb = sys.exc_info()
         if tb is not None:
@@ -111,7 +127,3 @@ def run():
                 curr = curr.tb_next
             print(prev.tb_frame.f_locals)
         raise
-
-
-if __name__ == '__main__':
-    run()
