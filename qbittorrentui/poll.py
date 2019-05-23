@@ -35,13 +35,13 @@ class ClientPoller:
     async def start(self):
         while True:
             try:
-                self.run_update()
+                await self.run_update()
             except ConnectorError:
                 pass
             finally:
                 await asyncio.sleep(2)
 
-    def run_update(self):
+    async def run_update(self):
         md = self.client.sync_maindata(self.rid)
         self.rid = md.get('rid', self.rid)
         logger.info("RID: %s" % self.rid)
