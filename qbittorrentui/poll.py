@@ -1,24 +1,14 @@
 import logging
-import asyncio
-import blinker
-from time import sleep
+from time import time, sleep
 
 from qbittorrentui.connector import Connector
 from qbittorrentui.connector import ConnectorError
+from qbittorrentui.events import sync_maindata_ready
+from qbittorrentui.events import refresh_torrent_list_with_remote_data_now
 
 logger = logging.getLogger(__name__)
 
-
-async def start(main, loop=asyncio.get_event_loop()):
-    loop.create_task(update_torrent_info(main, loop))
-
-
-async def update_torrent_info(main, loop):
-    client = main.torrent_client
-    md = client.sync_maindata(0)
-    logger.info(md)
-    await asyncio.sleep(3)
-    loop.create_task(update_torrent_info(main, loop))
+POLL_INTERVAL = 2
 
 
 class ClientPoller:
@@ -28,30 +18,26 @@ class ClientPoller:
         self.main = main
         self.client = main.torrent_client
         self.rid = 0
-        self.maindata_ready = blinker.signal('maindata ready')
+        refresh_torrent_list_with_remote_data_now.connect(receiver=self.run_update)
 
-    async def start_polling(self):
-        self.aioloop.create_task()
-
-    # async def start(self):
     def start(self):
         while True:
+            start_time = time()
             try:
-                # with concurrent.futures.ThreadPoolExecutor() as pool:
-                # await self.main.aioloop.run_in_executor(None, self.run_update)
                 self.run_update()
             except ConnectorError:
-                pass
+                logger.info("Could not connect to qbittorrent")
             finally:
-                # await asyncio.sleep(2)
-                sleep(2)
+                poll_time = time() - start_time
+                if poll_time < POLL_INTERVAL:
+                    sleep(POLL_INTERVAL - poll_time)
 
-    # async def run_update(self):
     def run_update(self):
-        logger.info("Requesting maindata")
+        logger.info("Requesting maindata (RID: %s)" % self.rid)
+        start_time = time()
         md = self.client.sync_maindata(self.rid)
         self.rid = md.get('rid', self.rid)
-        logger.info("RID: %s" % self.rid)
-        self.main.torrent_list_window.md = md
-        # logger.info(self.maindata_ready.send('maindata poller'))
-        self.main.torrent_list_window.refresh_with_maindata(md)
+        response_time = time() - start_time
+        logger.info("Received maindata (RID: %s) in %.3f secs" % (self.rid, response_time))
+        sync_maindata_ready.send("client poller", md=md)
+

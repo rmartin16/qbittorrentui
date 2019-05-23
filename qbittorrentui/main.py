@@ -1,12 +1,12 @@
 import urwid
 import logging
-import asyncio
+from threading import Thread
 
 from qbittorrentui.connector import Connector
 from qbittorrentui.connector import ConnectorError
 from qbittorrentui.windows import TorrentListWindow
 from qbittorrentui.windows import ConnectWindow
-import qbittorrentui.poll
+from qbittorrentui.poll import ClientPoller
 
 try:
     logging.basicConfig(level=logging.INFO,
@@ -30,24 +30,18 @@ class Main(object):
         self.torrent_window = None
         self.connect_window = None
         self.torrent_options_window = None
+        self.first_window = None
 
-    def refresh(self, *args, **kwargs):
-        self.torrent_list_window.refresh_torrent_list_window(args, kwargs)
+        self.client_poller = ClientPoller(self)
 
-    async def log_output(self):
-        logger.info("async output")
-        await asyncio.sleep(3)
-        asyncio.create_task(self.log_output())
-
-    def start(self):
-
-        def unhandled_input(key):
-            if key in ('q', 'Q'):
-                raise urwid.ExitMainLoop()
-
+    def _setup_screen(self):
+        logger.info("Creating screen")
         self.ui = urwid.raw_display.Screen()
         self.ui.set_terminal_properties(colors=256)
+        logger.info("Created screen")
 
+    def _setup_windows(self):
+        logger.info("Creating windows")
         self.connect_w = urwid.Filler(ConnectWindow(main=self))
         self.torrent_list_window = TorrentListWindow(main=self)
         # self.torrent_window = urwid.ListBox(urwid.SimpleFocusListWalker([urwid.Text("Welcome to the torrent window")]))
@@ -56,8 +50,17 @@ class Main(object):
                                             align=urwid.CENTER,
                                             width=50,
                                             valign=urwid.MIDDLE,
-                                            height=15)
+                                            height=15,
+                                            )
+        try:
+            self.torrent_client.connect()
+            self.first_window = self.torrent_list_window
+        except ConnectorError:
+            self.first_window = self.connect_window
+        logger.info("Created windows")
 
+    def _create_urwid_loop(self):
+        logger.info("Creating urwid loop")
         palette = [
             ('dark blue on default', 'dark blue', ''),
             ('dark cyan on default', 'dark cyan', ''),
@@ -84,36 +87,36 @@ class Main(object):
             ('reversed', 'standout', ''),
         ]
 
-        try:
-            self.torrent_client.connect()
-            first_window = self.torrent_list_window
-        except ConnectorError:
-            first_window = self.connect_window
+        def unhandled_input(key):
+            if key in ('q', 'Q'):
+                raise urwid.ExitMainLoop()
 
-        logger.info("start async loop")
-        self.aioloop = asyncio.get_event_loop()
-        self.Poller = qbittorrentui.poll.ClientPoller(self)
-        # self.aioloop.create_task(self.Poller.start())
-        from threading import Thread
-        t = Thread(target=self.Poller.start)
-        t.start()
-
-        logger.info("create urwid loop")
-        self.loop = urwid.MainLoop(widget=first_window,
+        self.loop = urwid.MainLoop(widget=self.first_window,
                                    screen=self.ui,
                                    handle_mouse=False,
                                    unhandled_input=unhandled_input,
                                    palette=palette,
-                                   event_loop=urwid.AsyncioEventLoop(loop=self.aioloop),
+                                   event_loop=None,
                                    pop_ups=True,
                                    )
+        logger.info("Created urwid loop")
 
-        # refresh window immediately
-        # self.loop.set_alarm_in(sec=.01, callback=self.refresh)
+    def _start_poller_daemon(self):
+        logger.info("Starting poller")
+        t = Thread(target=self.client_poller.start, daemon=True)
+        t.start()
+        logger.info("Started poller")
 
-        # display TUI
-        logger.info("start urwid loop")
+    def _start_tui(self):
+        logger.info("Starting urwid loop")
         self.loop.run()
+
+    def start(self):
+        self._setup_screen()
+        self._setup_windows()
+        self._create_urwid_loop()
+        self._start_poller_daemon()
+        self._start_tui()
 
 
 def run():
