@@ -93,7 +93,10 @@ class Main(object):
         logger.info("start async loop")
         self.aioloop = asyncio.get_event_loop()
         self.Poller = qbittorrentui.poll.ClientPoller(self)
-        self.aioloop.create_task(self.Poller.start())
+        # self.aioloop.create_task(self.Poller.start())
+        from threading import Thread
+        t = Thread(target=self.Poller.start)
+        t.start()
 
         logger.info("create urwid loop")
         self.loop = urwid.MainLoop(widget=first_window,

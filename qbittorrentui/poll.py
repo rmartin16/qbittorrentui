@@ -1,6 +1,7 @@
 import logging
 import asyncio
 import blinker
+from time import sleep
 
 from qbittorrentui.connector import Connector
 from qbittorrentui.connector import ConnectorError
@@ -32,20 +33,25 @@ class ClientPoller:
     async def start_polling(self):
         self.aioloop.create_task()
 
-    async def start(self):
+    # async def start(self):
+    def start(self):
         while True:
             try:
-                await self.run_update()
+                # with concurrent.futures.ThreadPoolExecutor() as pool:
+                # await self.main.aioloop.run_in_executor(None, self.run_update)
+                self.run_update()
             except ConnectorError:
                 pass
             finally:
-                await asyncio.sleep(2)
+                # await asyncio.sleep(2)
+                sleep(2)
 
-    async def run_update(self):
+    # async def run_update(self):
+    def run_update(self):
+        logger.info("Requesting maindata")
         md = self.client.sync_maindata(self.rid)
         self.rid = md.get('rid', self.rid)
         logger.info("RID: %s" % self.rid)
         self.main.torrent_list_window.md = md
         # logger.info(self.maindata_ready.send('maindata poller'))
         self.main.torrent_list_window.refresh_with_maindata(md)
-

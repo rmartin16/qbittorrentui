@@ -239,7 +239,8 @@ class TorrentListWindow(urwid.Frame):
                                              self.torrent_list_w])
 
         # signals
-        self.md = {}
+        self.md = AttrDict()
+        self.server_state = AttrDict()
         self.maindata_ready = blinker.signal('maindata ready')
         self.maindata_ready.connect(self.refresh_with_maindata)
         # urwid.register_signal(type(self.torrent_tabs_w), 'change')
@@ -385,11 +386,9 @@ class TorrentListWindow(urwid.Frame):
 
     def refresh_with_maindata(self, md=None):
 
-        md = self.md
-
         # refresh title and status bars
         self.header = self._build_title_bar_w()
-        self.footer = self._build_status_bar_from_md_w(md)
+        self.footer = self._build_status_bar_from_md_w(self.md)
 
         # get torrent hash of focused torrent (none is no torrents)
         torrent_hash = self.torrent_list_w.get_torrent_hash_for_focused_row()
@@ -398,7 +397,8 @@ class TorrentListWindow(urwid.Frame):
         self.torrent_list_walker_w.clear()
         tab_pos = self.torrent_tabs_w._TorrentListTabsColumns__selected_tab_pos
         status_filter = self.torrent_tabs_w[tab_pos].get_text()[0].lower()
-        self.torrent_list_walker_w.extend(self._build_torrent_list_for_walker_w(status_filter=status_filter))
+        # self.torrent_list_walker_w.extend(self._build_torrent_list_for_walker_w(status_filter=status_filter))
+        self.torrent_list_walker_w.extend(self._build_torrent_list_for_walker_from_md_w(self.md))
 
         # re-focus same torrent if it still exists
         if torrent_hash is not None:
@@ -418,26 +418,27 @@ class TorrentListWindow(urwid.Frame):
 
         :return: string status
         """
-        server_state = AttrDict(md.get('server_state', {}))
+        server_state = AttrDict(self.md.get('server_state', {}))
+        self.server_state.update(server_state)
 
-        status = server_state.get('connection_status', 'disconnected')
+        status = self.server_state.get('connection_status', 'disconnected')
 
-        dht_nodes = server_state.get('dht_nodes')
+        dht_nodes = self.server_state.get('dht_nodes')
 
         ''' ⯆[<dl rate>:<dl limit>:<dl size>] ⯅[<up rate>:<up limit>:<up size>] '''
         dl_up_text = ("%s/s%s [%s%s] (%s) %s/s%s [%s%s] (%s)" %
-                      (natural_file_size(server_state.dl_info_speed, gnu=True).rjust(6),
+                      (natural_file_size(self.server_state.dl_info_speed, gnu=True).rjust(6),
                        '\u25BC',
-                       natural_file_size(server_state.dl_rate_limit, gnu=True) if server_state.dl_rate_limit not in [0, ''] else '',
-                       '/s' if server_state.dl_rate_limit not in [0, ''] else '',
-                       natural_file_size(server_state.dl_info_data, gnu=True),
-                       natural_file_size(server_state.up_info_speed, gnu=True).rjust(6),
+                       natural_file_size(self.server_state.dl_rate_limit, gnu=True) if self.server_state.dl_rate_limit not in [0, ''] else '',
+                       '/s' if self.server_state.dl_rate_limit not in [0, ''] else '',
+                       natural_file_size(self.server_state.dl_info_data, gnu=True),
+                       natural_file_size(self.server_state.up_info_speed, gnu=True).rjust(6),
                        '\u25B2',
-                       natural_file_size(server_state.up_rate_limit, gnu=True) if server_state.up_rate_limit not in [0, ''] else '',
-                       '/s' if server_state.up_rate_limit not in [0, ''] else '',
-                       natural_file_size(server_state.up_info_data, gnu=True),
+                       natural_file_size(self.server_state.up_rate_limit, gnu=True) if self.server_state.up_rate_limit not in [0, ''] else '',
+                       '/s' if self.server_state.up_rate_limit not in [0, ''] else '',
+                       natural_file_size(self.server_state.up_info_data, gnu=True),
                        )
-                      ) if server_state.get('dl_rate_limit', '') != '' else ''
+                      ) if self.server_state.get('dl_rate_limit', '') != '' else ''
 
         left_column_text = "%sStatus: %s" % (("DHT: %s " % dht_nodes) if dht_nodes is not "" else "", status)
         right_column_text = "%s" % dl_up_text
@@ -495,7 +496,7 @@ class TorrentListWindow(urwid.Frame):
                      'checkingResumeData': 'Checking Resume Data'}
 
         torrents_md = md.get('torrents', {})
-        torrents_removed_md = md.get('torrents_removed')
+        torrents_removed_md = md.get('torrents_removed', {})
 
         # remove torrents no longer in qbittorrent
         for hash in torrents_removed_md:
@@ -503,7 +504,7 @@ class TorrentListWindow(urwid.Frame):
 
         # add new torrents or new torrent info
         for hash, torrent in torrents_md.items():
-            if hash in self.torrent_info:
+            if hash in self.torrents_info:
                 self.torrents_info[hash].update(torrent)
             else:
                 self.torrents_info[hash] = torrent
@@ -511,11 +512,12 @@ class TorrentListWindow(urwid.Frame):
         # find longest torrent name length
         max_title_len = 0
         if len(self.torrents_info) != 0:
-            max_title_len = max(map(len, [''.join(self.torrents_info[hash].name)for hash in self.torrents_info]))
+            max_title_len = max(map(len, [self.torrents_info[hash]['name'] for hash in self.torrents_info]))
         max_title_len = min(max_title_len, 170)
 
         torrent_list = []
         for hash, torrent in self.torrents_info.items():
+            torrent = AttrDict(torrent)
             # build display-agnostic torrent info in list of Texts
             state = state_map[torrent.state] if torrent.state in state_map else torrent.state
             size = natural_file_size(torrent.size, gnu=True).rjust(6)
@@ -603,7 +605,7 @@ class TorrentListWindow(urwid.Frame):
                 attr = ''
 
             # add row to list
-            torrent_row_w.set_torrent_hash(torrent.hash)
+            torrent_row_w.set_torrent_hash(hash)
             torrent_list.append(urwid.AttrMap(torrent_row_w, attr, focus_map='selected'))
 
         return torrent_list if torrent_list else [
