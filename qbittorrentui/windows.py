@@ -4,6 +4,8 @@ import logging
 from attrdict import AttrDict
 import panwid
 
+from time import time
+
 from qbittorrentui.connector import Connector
 from qbittorrentui.connector import ConnectorError
 from qbittorrentui.connector import LoginFailed
@@ -397,6 +399,7 @@ class TorrentListWindow(urwid.Frame):
         self.md = AttrDict()
 
     def refresh(self, *a, **kw):
+        refresh_start_time = time()
         sender = a[0]
         logger.info("Refreshing Torrent List %s" % "(from %s)" % (sender if sender else "from unknown"))
         # refresh title and status bars
@@ -422,10 +425,10 @@ class TorrentListWindow(urwid.Frame):
         logger.info("Finished refreshing %s" % "(from %s)" % (sender if sender else "from unknown"))
 
         # TODO: delete
-        from time import time
         if hasattr(self, 'last_refresh_time'):
             logger.info("Time since last refresh: %.2f" % (time() - self.last_refresh_time))
         self.last_refresh_time = time()
+        logger.info("Time to refresh: %.2f" % (time() - refresh_start_time))
 
     def _build_status_bar_w(self):
         """
