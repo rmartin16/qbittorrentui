@@ -12,6 +12,7 @@ setup(
                       'attrdict<=2.0.1,>=2.0.0',
                       'panwid==0.2.5',
                       'qbittorrent-api',
+                      'blinker==1.4'
                       ],
     url='https://github.com/rmartin16/qbittorrentui',
     author='Russell Martin',

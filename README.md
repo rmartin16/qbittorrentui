@@ -1,12 +1,10 @@
 qBittorrenTUI
 ===============
-Console UI for qBittorrent
+Console UI for qBittorrent. Functional but a little buggy currently...
 
 ![qbittorrentui screenshot 1](https://i.imgur.com/iGM3bPI.png)
 
 ![qbittorrentui screensho 2t](https://i.imgur.com/msRNi86.png)
-
-Since qBittorrent communication is currently happening in the UI thread, this should only be run with a fast, low latency connection to qBittorrent.
 
 Installation
 ------------

@@ -35,8 +35,8 @@ class Poller:
         while True:
             start_time = time()
             try:
-                self._one_sync_maindata_loop()
                 self._run_detail_fetch()
+                self._one_sync_maindata_loop()
             except ConnectorError:
                 logger.info("Poller could not connect to request data")
             except Exception:
