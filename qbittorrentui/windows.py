@@ -3,13 +3,18 @@ from socket import getfqdn
 import logging
 from attrdict import AttrDict
 import panwid
-import blinker
+from threading import Thread
 
 from qbittorrentui.connector import Connector
 from qbittorrentui.connector import ConnectorError
 from qbittorrentui.connector import LoginFailed
+from qbittorrentui.poller import Poller
 from qbittorrentui.events import sync_maindata_ready
 from qbittorrentui.events import rebuild_torrent_list_now
+from qbittorrentui.events import refresh_torrent_list_with_remote_data_now
+from qbittorrentui.events import request_to_initialize_torrent_list
+from qbittorrentui.events import torrent_list_ready
+
 
 _APP_NAME = 'qBittorrenTUI'
 logger = logging.getLogger(__name__)
@@ -182,7 +187,7 @@ class ConnectWindow(urwid.Pile):
                                 username=self.username_w.get_edit_text(),
                                 password=self.password_w.get_edit_text())
             self.main.loop.widget = self.main.torrent_list_window
-            self.main.torrent_list_window.refresh_torrent_list_window_args('no alarm')
+            request_to_initialize_torrent_list.send('connect window')
         except LoginFailed:
             self.error_w.set_text("Error: login failed")
         except ConnectorError as e:
@@ -245,8 +250,9 @@ class TorrentListWindow(urwid.Frame):
                                              self.torrent_list_w])
 
         # signals
-        sync_maindata_ready.connect(receiver=self.refresh_with_maindata)
         rebuild_torrent_list_now.connect(receiver=self.refresh)
+        request_to_initialize_torrent_list.connect(receiver=self.request_torrent_list_initialization)
+        torrent_list_ready.connect(receiver=self.initialize_torrent_list_from_torrent_info)
         urwid.register_signal(type(self.torrent_tabs_w), 'change')
         urwid.connect_signal(self.torrent_tabs_w,
                              'change',
@@ -380,18 +386,42 @@ class TorrentListWindow(urwid.Frame):
             pass
         return key
 
-    def reset_torrent_list_focus(self, *args):
+    def request_torrent_list_initialization(self, *a, **kw):
+        """send request to fetch torrent info.
+        poller will call back with initialize_torrent_list_from_torrent_info"""
+        #torrent_list_fetcher = Poller(self.main)
+        #t = Thread(target=torrent_list_fetcher.fetch_and_send_full_torrent_list, daemon=True)
+        #t.start()
+        sync_maindata_ready.connect(receiver=self.refresh_with_maindata)
+        refresh_torrent_list_with_remote_data_now.send("initialization")
+
+    def initialize_torrent_list_from_torrent_info(self, *a, **kw):
+        torrents_info = kw.pop("torrents_info")
+        # reformat in to "torrents" subscript of md
+        for torrent in torrents_info:
+            self.md[torrent.hash] = torrent
+
+        # initiate initial torrent list creation using torrents info
+        rebuild_torrent_list_now.send('refresh with torrents info')
+
+        # connect to receive sync updates once initialized
+        sync_maindata_ready.connect(receiver=self.refresh_with_maindata)
+
+        # request immediate sync maindata update
+        refresh_torrent_list_with_remote_data_now.send('initialization')
+
+    def reset_torrent_list_focus(self, *a):
         self.torrent_list_w.set_focus(0)
 
     def refresh_with_maindata(self, *a, **kw):
-
         self.md = AttrDict(kw.pop('md', {}))
         rebuild_torrent_list_now.send('refresh with maindata')
+        self.main.loop.draw_screen()
         self.md = AttrDict()
 
     def refresh(self, *a, **kw):
         sender = a[0]
-        logger.info("Started refreshing Torrent List window%s" % " (%s)" % (sender if sender else "from unknown"))
+        logger.info("Refreshing Torrent List %s" % "(from %s)" % (sender if sender else "from unknown"))
         # refresh title and status bars
         self.header = self._build_title_bar_w()
         self.footer = self._build_status_bar_w()
@@ -412,7 +442,13 @@ class TorrentListWindow(urwid.Frame):
                     self.torrent_list_walker_w.set_focus(pos)
         else:
             self.torrent_list_walker_w.set_focus(0)
-        logger.info("Finished refreshing Torrent List window%s" % " (%s)" % (sender if sender else "from unknown"))
+        logger.info("Finished refreshing %s" % "(from %s)" % (sender if sender else "from unknown"))
+
+        # TODO: delete
+        from time import time
+        if hasattr(self, 'last_refresh_time'):
+            logger.info("Time since last refresh: %.2f" % (time() - self.last_refresh_time))
+        self.last_refresh_time = time()
 
     def _build_status_bar_w(self):
         """
@@ -859,7 +895,7 @@ class TorrentOptions(urwid.Pile):
         self.client.torrents_reannounce(torrent_ids=self.torrent_hash)
 
     def reset_screen_to_torrent_list_window(self):
-        self.main.torrent_list_window.refresh_torrent_list_window_args('no alarm')
+        refresh_torrent_list_with_remote_data_now.send()
         self.main.loop.widget = self.main.torrent_list_window
 
     def keypress(self, size, key):

@@ -72,6 +72,10 @@ class Connector:
                 self.is_logged_in = False
                 raise ConnectorError(repr(e))
 
+    @property
+    def is_connected(self):
+        return self.is_logged_in
+
     @connection_required
     def version(self):
         if self._client_type is ClientType.qbittorrent:

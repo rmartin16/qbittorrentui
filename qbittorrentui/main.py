@@ -6,7 +6,8 @@ from qbittorrentui.connector import Connector
 from qbittorrentui.connector import ConnectorError
 from qbittorrentui.windows import TorrentListWindow
 from qbittorrentui.windows import ConnectWindow
-from qbittorrentui.poll import ClientPoller
+from qbittorrentui.poller import Poller
+from qbittorrentui.events import request_to_initialize_torrent_list
 
 try:
     logging.basicConfig(level=logging.INFO,
@@ -32,7 +33,7 @@ class Main(object):
         self.torrent_options_window = None
         self.first_window = None
 
-        self.client_poller = ClientPoller(self)
+        self.maindata_poller = Poller(self)
 
     def _setup_screen(self):
         logger.info("Creating screen")
@@ -101,21 +102,26 @@ class Main(object):
                                    )
         logger.info("Created urwid loop")
 
-    def _start_poller_daemon(self):
-        logger.info("Starting poller")
-        t = Thread(target=self.client_poller.start, daemon=True)
+    def _start_maindata_poller_daemon(self):
+        logger.info("Starting maindata poller")
+        t = Thread(target=self.maindata_poller.start_sync_maindata_loop, daemon=True)
         t.start()
-        logger.info("Started poller")
+        logger.info("Started maindata poller")
 
     def _start_tui(self):
         logger.info("Starting urwid loop")
+        self.loop.set_alarm_in(.01, callback=self._initialize_torrent_list_if_connected)
         self.loop.run()
+
+    def _initialize_torrent_list_if_connected(self, *a, **kw):
+        if self.torrent_client.is_connected:
+            request_to_initialize_torrent_list.send('loop startup')
 
     def start(self):
         self._setup_screen()
         self._setup_windows()
         self._create_urwid_loop()
-        self._start_poller_daemon()
+        self._start_maindata_poller_daemon()
         self._start_tui()
 
 
