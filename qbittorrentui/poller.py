@@ -5,6 +5,7 @@ from qbittorrentui.connector import Connector
 from qbittorrentui.connector import ConnectorError
 from qbittorrentui.events import sync_maindata_ready
 from qbittorrentui.events import refresh_torrent_list_with_remote_data_now
+from qbittorrentui.events import details_ready
 
 logger = logging.getLogger(__name__)
 
@@ -24,14 +25,22 @@ class Poller:
         self.rid = 0
         self.sync_maindata_update_in_progress = False
 
+        self.version = ""
+        self.conn_port = ""
+
         # signals to respond to
         refresh_torrent_list_with_remote_data_now.connect(receiver=self._one_sync_maindata_loop)
 
-    def start_sync_maindata_loop(self):
+    def start_data_fetch_loop(self):
         while True:
             start_time = time()
             try:
                 self._one_sync_maindata_loop()
+                self._run_detail_fetch()
+            except ConnectorError:
+                logger.info("Poller could not connect to request data")
+            except Exception:
+                logger.exception("Data poller daemon crashed")
             finally:
                 poll_time = time() - start_time
                 if poll_time < POLL_INTERVAL:
@@ -40,10 +49,6 @@ class Poller:
     def _one_sync_maindata_loop(self, *a, **kw):
         try:
             self._run_sync_maindata_update()
-        except ConnectorError:
-            logger.info("Poller could not connect to request sync maindata")
-        except Exception:
-            logger.exception("MainData poller daemon crashed")
         finally:
             self.sync_maindata_update_in_progress = False
 
@@ -69,3 +74,15 @@ class Poller:
         else:
             logger.info("Sync maindata reset")
             self.rid = 0
+
+    def _run_detail_fetch(self, *a, **kw):
+
+        torrent_manager_version = self.client.version()
+        connection_port = self.client.connection_port()
+
+        if torrent_manager_version != self.version:
+            self.version = torrent_manager_version
+            details_ready.send('detail fetch', version=self.version)
+        if connection_port != self.conn_port:
+            self.conn_port = connection_port
+            details_ready.send('detail fetch', conn_port=self.conn_port)

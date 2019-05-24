@@ -4,6 +4,9 @@ import blinker
 sync_maindata_ready = blinker.Signal()
 """signal from poller to send maindata to receivers"""
 
+details_ready = blinker.Signal()
+"""signal for updated details about the torrent manager"""
+
 rebuild_torrent_list_now = blinker.Signal()
 """signal to rebuild torrent list using existing torrent data"""
 

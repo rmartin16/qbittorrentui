@@ -104,7 +104,7 @@ class Main(object):
 
     def _start_maindata_poller_daemon(self):
         logger.info("Starting maindata poller")
-        t = Thread(target=self.maindata_poller.start_sync_maindata_loop, daemon=True)
+        t = Thread(target=self.maindata_poller.start_data_fetch_loop, daemon=True)
         t.start()
         logger.info("Started maindata poller")
 

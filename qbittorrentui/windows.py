@@ -13,6 +13,7 @@ from qbittorrentui.events import sync_maindata_ready
 from qbittorrentui.events import rebuild_torrent_list_now
 from qbittorrentui.events import refresh_torrent_list_with_remote_data_now
 from qbittorrentui.events import request_to_initialize_torrent_list
+from qbittorrentui.events import details_ready
 
 
 _APP_NAME = 'qBittorrenTUI'
@@ -207,6 +208,9 @@ class TorrentListWindow(urwid.Frame):
         self.md = AttrDict()
         self.torrents_info = AttrDict()
         self.server_state = AttrDict()
+        self.categories = AttrDict()
+        self.torrent_manager_version = ""
+        self.connection_port = ""
         self.__width = None
 
         # initialize title and status bars
@@ -249,6 +253,7 @@ class TorrentListWindow(urwid.Frame):
                                              self.torrent_list_w])
 
         # signals
+        details_ready.connect(receiver=self.update_details)
         rebuild_torrent_list_now.connect(receiver=self.refresh)
         request_to_initialize_torrent_list.connect(receiver=self.request_torrent_list_initialization)
         urwid.register_signal(type(self.torrent_tabs_w), 'change')
@@ -328,10 +333,15 @@ class TorrentListWindow(urwid.Frame):
 
         def open_torrent_options_window(self):
 
-            torrent_info = self.main.torrent_client.torrents_list(torrent_ids=self.get_torrent_hash())
+            # TODO: get torrent title from TorrentList instead of md
+            #       however, TorrentRow and TorrentColumns needs to be rewritten to make that easier
             torrent_name = ""
-            if torrent_info:
-                torrent_name = torrent_info[0].name
+            try:
+                torrent_info = self.main.torrent_list_window.torrents_info[self.get_torrent_hash()]
+                if torrent_info:
+                    torrent_name = torrent_info['name']
+            except Exception:
+                logger.exception("Failed to determine torrent name for Torrent Options window")
 
             self.main.torrent_options_window = urwid.Overlay(
                 top_w=urwid.LineBox(
@@ -394,9 +404,45 @@ class TorrentListWindow(urwid.Frame):
 
     def refresh_with_maindata(self, *a, **kw):
         self.md = AttrDict(kw.pop('md', {}))
+        if self.md.get('full_update', False):
+
+            self.server_state = AttrDict(self.md.get('server_state', {}))
+
+            self.torrents_info = AttrDict()
+            for hash, torrent in self.md.get('torrents', {}).items():
+                self.torrents_info[hash] = AttrDict(torrent)
+
+            self.categories = AttrDict()
+            for category_name, category in self.md.get('categories', {}).items():
+                self.categories[category_name] = AttrDict(category)
+
+        else:
+            self.server_state.update(AttrDict(self.md.get('server_state', {})))
+
+            # remove torrents no longer in qbittorrent
+            for hash in self.md.get('torrents_removed', {}):
+                self.torrents_info.pop(hash, None)
+            # add new torrents or new torrent info
+            for hash, torrent in self.md.get('torrents', {}).items():
+                if hash in self.torrents_info:
+                    self.torrents_info[hash].update(torrent)
+                else:
+                    self.torrents_info[hash] = torrent
+
+            # remove categories no longer in qbittorrent
+            for category in self.md.get('categories_removed', {}):
+                self.categories.pop(category, None)
+            # add new categories or new category info
+            for category_name, category in self.md.get('categories', {}).items():
+                if category in self.categories:
+                    self.categories[category_name].update(category)
+                else:
+                    self.categories[category_name] = category
+
         rebuild_torrent_list_now.send('refresh with maindata')
         self.main.loop.draw_screen()
-        self.md = AttrDict()
+        # TODO: consider uncommenting this again
+        # self.md = AttrDict()
 
     def refresh(self, *a, **kw):
         refresh_start_time = time()
@@ -430,6 +476,15 @@ class TorrentListWindow(urwid.Frame):
         self.last_refresh_time = time()
         logger.info("Time to refresh: %.2f" % (time() - refresh_start_time))
 
+    def update_details(self, *a, **kw):
+        ver = kw.pop('version', "")
+        if ver != "":
+            self.torrent_manager_version = ver
+
+        conn_port = kw.pop('conn_port', "")
+        if conn_port != "":
+            self.connection_port = conn_port
+
     def _build_status_bar_w(self):
         """
         Create status bar for window.
@@ -440,7 +495,6 @@ class TorrentListWindow(urwid.Frame):
 
         :return: string status
         """
-        self.server_state.update(AttrDict(self.md.get('server_state', {})))
 
         status = self.server_state.get('connection_status', 'disconnected')
 
@@ -484,15 +538,13 @@ class TorrentListWindow(urwid.Frame):
         :return: string title
         """
         app_name = _APP_NAME
-        try:
-            torrent_manager_version = self.client.version()
-            connection_port = self.client.connection_port()
-        except ConnectorError:
-            torrent_manager_version = ""
-            connection_port = ""
         hostname = getfqdn()
         return urwid.Padding(
-            urwid.Text("%s (%s) %s:%s" % (app_name, torrent_manager_version, hostname, connection_port),
+            urwid.Text("%s (%s) %s:%s" % (app_name,
+                                          self.torrent_manager_version,
+                                          hostname,
+                                          self.connection_port,
+                                          ),
                        align=urwid.CENTER),
             width=urwid.RELATIVE_100)
 
@@ -534,20 +586,6 @@ class TorrentListWindow(urwid.Frame):
                      'error': 'Error',
                      'queuedForChecking': 'Queued for Checking',
                      'checkingResumeData': 'Checking Resume Data'}
-
-        torrents_md = AttrDict(self.md.get('torrents', {}))
-        torrents_removed_md = AttrDict(self.md.get('torrents_removed', {}))
-
-        # remove torrents no longer in qbittorrent
-        for hash in torrents_removed_md:
-            self.torrents_info.pop(hash, None)
-
-        # add new torrents or new torrent info
-        for hash, torrent in torrents_md.items():
-            if hash in self.torrents_info:
-                self.torrents_info[hash].update(torrent)
-            else:
-                self.torrents_info[hash] = torrent
 
         # find longest torrent name length
         max_title_len = 0
@@ -660,17 +698,14 @@ class TorrentOptions(urwid.Pile):
         self.main = main
         self.client = main.torrent_client
 
-        self.torrent_info = self.client.torrents_list(torrent_ids=self.torrent_hash)
-        if self.torrent_info:
-            self.torrent_info = self.torrent_info[0]
-        self.torrent_properties = self.client.torrent_properties(torrent_id=self.torrent_hash)
+        self.torrent_info = self.main.torrent_list_window.torrents_info[self.torrent_hash]
 
         self.delete_files_w = None
 
-        categories = {x: x for x in list(self.client.torrents_categories().keys())}
+        categories = {x: x for x in list(self.main.torrent_list_window.categories.keys())}
         categories["<no category>"] = "<no category>"
 
-        self.original_location = self.torrent_properties.save_path
+        self.original_location = self.torrent_info.save_path
         self.location_w = urwid.Edit(caption="Location: ",
                                      edit_text=self.original_location)
         self.original_name = self.torrent_info.name
