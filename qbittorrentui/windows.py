@@ -3,17 +3,14 @@ from socket import getfqdn
 import logging
 from attrdict import AttrDict
 import panwid
-from threading import Thread
 
 from qbittorrentui.connector import Connector
 from qbittorrentui.connector import ConnectorError
 from qbittorrentui.connector import LoginFailed
-from qbittorrentui.poller import Poller
 from qbittorrentui.events import sync_maindata_ready
 from qbittorrentui.events import rebuild_torrent_list_now
 from qbittorrentui.events import refresh_torrent_list_with_remote_data_now
 from qbittorrentui.events import request_to_initialize_torrent_list
-from qbittorrentui.events import torrent_list_ready
 
 
 _APP_NAME = 'qBittorrenTUI'
@@ -252,7 +249,6 @@ class TorrentListWindow(urwid.Frame):
         # signals
         rebuild_torrent_list_now.connect(receiver=self.refresh)
         request_to_initialize_torrent_list.connect(receiver=self.request_torrent_list_initialization)
-        torrent_list_ready.connect(receiver=self.initialize_torrent_list_from_torrent_info)
         urwid.register_signal(type(self.torrent_tabs_w), 'change')
         urwid.connect_signal(self.torrent_tabs_w,
                              'change',
@@ -387,28 +383,9 @@ class TorrentListWindow(urwid.Frame):
         return key
 
     def request_torrent_list_initialization(self, *a, **kw):
-        """send request to fetch torrent info.
-        poller will call back with initialize_torrent_list_from_torrent_info"""
-        #torrent_list_fetcher = Poller(self.main)
-        #t = Thread(target=torrent_list_fetcher.fetch_and_send_full_torrent_list, daemon=True)
-        #t.start()
+        """once connected to qbittorrent, initialize torrent list window"""
         sync_maindata_ready.connect(receiver=self.refresh_with_maindata)
         refresh_torrent_list_with_remote_data_now.send("initialization")
-
-    def initialize_torrent_list_from_torrent_info(self, *a, **kw):
-        torrents_info = kw.pop("torrents_info")
-        # reformat in to "torrents" subscript of md
-        for torrent in torrents_info:
-            self.md[torrent.hash] = torrent
-
-        # initiate initial torrent list creation using torrents info
-        rebuild_torrent_list_now.send('refresh with torrents info')
-
-        # connect to receive sync updates once initialized
-        sync_maindata_ready.connect(receiver=self.refresh_with_maindata)
-
-        # request immediate sync maindata update
-        refresh_torrent_list_with_remote_data_now.send('initialization')
 
     def reset_torrent_list_focus(self, *a):
         self.torrent_list_w.set_focus(0)
@@ -481,7 +458,7 @@ class TorrentListWindow(urwid.Frame):
                        )
                       ) if self.server_state.get('dl_rate_limit', '') != '' else ''
 
-        left_column_text = "%sStatus: %s" % (("DHT: %s " % dht_nodes) if dht_nodes is not "" else "", status)
+        left_column_text = "%sStatus: %s" % (("DHT: %s " % dht_nodes) if dht_nodes is not None else "", status)
         right_column_text = "%s" % dl_up_text
         total_len = len(left_column_text) + len(right_column_text)
 

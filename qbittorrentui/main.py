@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 class Main(object):
     def __init__(self):
         super(Main, self).__init__()
-        self.torrent_client = Connector(host='localhost:8080', username='test', password='testtest')
+        self.torrent_client = Connector(host='localhost:8080', username='test', password='testtes')
 
         self.ui = None
         self.loop = None

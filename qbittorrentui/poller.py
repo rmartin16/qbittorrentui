@@ -5,7 +5,6 @@ from qbittorrentui.connector import Connector
 from qbittorrentui.connector import ConnectorError
 from qbittorrentui.events import sync_maindata_ready
 from qbittorrentui.events import refresh_torrent_list_with_remote_data_now
-from qbittorrentui.events import torrent_list_ready
 
 logger = logging.getLogger(__name__)
 
@@ -62,7 +61,7 @@ class Poller:
         response_time = time() - start_time
         logger.info("Received maindata (RID: %s) in %.3f secs" % (md.get('rid', ""), response_time))
 
-        # if no one is listening, reset syncing just in case
+        # if no one is listening, reset syncing just in case the next send is the first time a receiver connects
         if sync_maindata_ready.receivers:
             logger.info("Sending sync maindata")
             sync_maindata_ready.send("client poller", md=md)
@@ -70,9 +69,3 @@ class Poller:
         else:
             logger.info("Sync maindata reset")
             self.rid = 0
-
-    def fetch_and_send_full_torrent_list(self):
-        logger.info("Requesting torrent info")
-        torrents_info = self.client.torrents_list()
-        logger.info("Received torrent info for %d torrents" % len(torrents_info))
-        torrent_list_ready.send('client poller', torrents_info=torrents_info)
