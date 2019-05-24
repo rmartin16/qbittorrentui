@@ -335,13 +335,8 @@ class TorrentListWindow(urwid.Frame):
 
             # TODO: get torrent title from TorrentList instead of md
             #       however, TorrentRow and TorrentColumns needs to be rewritten to make that easier
-            torrent_name = ""
-            try:
-                torrent_info = self.main.torrent_list_window.torrents_info[self.get_torrent_hash()]
-                if torrent_info:
-                    torrent_name = torrent_info['name']
-            except Exception:
-                logger.exception("Failed to determine torrent name for Torrent Options window")
+            torrent_info = self.main.torrent_list_window.torrents_info[self.get_torrent_hash()]
+            torrent_name = torrent_info['name']
 
             self.main.torrent_options_window = urwid.Overlay(
                 top_w=urwid.LineBox(
@@ -403,31 +398,36 @@ class TorrentListWindow(urwid.Frame):
         self.torrent_list_w.set_focus(0)
 
     def refresh_with_maindata(self, *a, **kw):
+        """
+        entry point for data poller to update the torrent list
+
+        :param a:
+        :param kw:
+        :return:
+        """
         self.md = AttrDict(kw.pop('md', {}))
         if self.md.get('full_update', False):
-
             self.server_state = AttrDict(self.md.get('server_state', {}))
 
             self.torrents_info = AttrDict()
-            for hash, torrent in self.md.get('torrents', {}).items():
-                self.torrents_info[hash] = AttrDict(torrent)
+            for torrent_hash, torrent in self.md.get('torrents', {}).items():
+                self.torrents_info[torrent_hash] = AttrDict(torrent)
 
             self.categories = AttrDict()
             for category_name, category in self.md.get('categories', {}).items():
                 self.categories[category_name] = AttrDict(category)
-
         else:
             self.server_state.update(AttrDict(self.md.get('server_state', {})))
 
             # remove torrents no longer in qbittorrent
-            for hash in self.md.get('torrents_removed', {}):
-                self.torrents_info.pop(hash, None)
+            for torrent_hash in self.md.get('torrents_removed', {}):
+                self.torrents_info.pop(torrent_hash, None)
             # add new torrents or new torrent info
-            for hash, torrent in self.md.get('torrents', {}).items():
-                if hash in self.torrents_info:
-                    self.torrents_info[hash].update(torrent)
+            for torrent_hash, torrent in self.md.get('torrents', {}).items():
+                if torrent_hash in self.torrents_info:
+                    self.torrents_info[torrent_hash].update(torrent)
                 else:
-                    self.torrents_info[hash] = torrent
+                    self.torrents_info[torrent_hash] = torrent
 
             # remove categories no longer in qbittorrent
             for category in self.md.get('categories_removed', {}):
@@ -441,8 +441,7 @@ class TorrentListWindow(urwid.Frame):
 
         rebuild_torrent_list_now.send('refresh with maindata')
         self.main.loop.draw_screen()
-        # TODO: consider uncommenting this again
-        # self.md = AttrDict()
+        self.md = AttrDict()
 
     def refresh(self, *a, **kw):
         refresh_start_time = time()
@@ -567,37 +566,96 @@ class TorrentListWindow(urwid.Frame):
 
         :return: list of torrent boxes
         """
-        state_map = {'pausedUP': 'Completed',
-                     'uploading': 'Seeding',
-                     'stalledUP': 'Seeding',
-                     'forcedUP': '[F] Seeding',
-                     'queuedDL': 'Queued',
-                     'queuedUP': 'Queued',
-                     'pausedDL': 'Paused',
-                     'checkingDL': 'Checking',
-                     'checkingUP': 'Checking',
-                     'downloading': 'Downloading',
-                     'forcedDL': '[F] Downloading',
-                     'metaDL': 'Downloading',
-                     'stalledDL': 'Stalled',
-                     'allocating': 'Allocating',
-                     'moving': 'Moving',
-                     'missingfiles': 'Missing Files',
-                     'error': 'Error',
-                     'queuedForChecking': 'Queued for Checking',
-                     'checkingResumeData': 'Checking Resume Data'}
+        state_map_for_display = {'pausedUP': 'Completed',
+                                 'uploading': 'Seeding',
+                                 'stalledUP': 'Seeding',
+                                 'forcedUP': '[F] Seeding',
+                                 'queuedDL': 'Queued',
+                                 'queuedUP': 'Queued',
+                                 'pausedDL': 'Paused',
+                                 'checkingDL': 'Checking',
+                                 'checkingUP': 'Checking',
+                                 'downloading': 'Downloading',
+                                 'forcedDL': '[F] Downloading',
+                                 'metaDL': 'Downloading',
+                                 'stalledDL': 'Stalled',
+                                 'allocating': 'Allocating',
+                                 'moving': 'Moving',
+                                 'missingfiles': 'Missing Files',
+                                 'error': 'Error',
+                                 'queuedForChecking': 'Queued for Checking',
+                                 'checkingResumeData': 'Checking Resume Data'}
+
+        state_map_for_filtering = {'downloading': ['downloading',
+                                                   'metaDL',
+                                                   'queuedDL',
+                                                   'stalledDL',
+                                                   'pausedDL',
+                                                   'forcedDL'
+                                                   ],
+                                   'completed': ['uploading',
+                                                 'stalledUP',
+                                                 'checkingUP',
+                                                 'pausedUP',
+                                                 'queuedUP',
+                                                 'forcedUP',
+                                                 ],
+                                   'active': ['stalledDL',
+                                              'metaDL',
+                                              'downloading',
+                                              'forcedDL',
+                                              'uploading',
+                                              'forcedUP',
+                                              'moving',
+                                              ],
+                                   'inactive': ['pausedUP',
+                                                'stalledUP',
+                                                'queuedDL',
+                                                'queuedUP',
+                                                'pausedDL',
+                                                'checkingDL',
+                                                'checkingUP',
+                                                'allocating',
+                                                'missingfiles',
+                                                'error',
+                                                'queuedForChecking',
+                                                'checkingResumeData',
+                                                ],
+                                   'paused': ['pausedUP',
+                                              'queuedDL',
+                                              'queuedUP',
+                                              'pausedDL',
+                                              'missingfiles',
+                                              'error',
+                                              'queuedForChecking',
+                                              'checkingResumeData',
+                                              ],
+                                   'resumed': ['uploading',
+                                               'stalledUP',
+                                               'forcedUP',
+                                               'checkingDL',
+                                               'checkingUP',
+                                               'downloading',
+                                               'forcedDL',
+                                               'metaDL',
+                                               'stalledDL',
+                                               'allocating',
+                                               'moving']
+                                   }
 
         # find longest torrent name length
         max_title_len = 0
         if len(self.torrents_info) != 0:
-            max_title_len = max(map(len, [self.torrents_info[hash]['name'] for hash in self.torrents_info]))
+            max_title_len = max(map(len, [self.torrents_info[torrent_hash]['name'] for torrent_hash in self.torrents_info]))
         max_title_len = min(max_title_len, 170)
 
         torrent_list = []
-        for hash, torrent in self.torrents_info.items():
-            torrent = AttrDict(torrent)
+        for torrent_hash, torrent in self.torrents_info.items():
+            # torrent = AttrDict(torrent)
+            if status_filter in state_map_for_filtering.keys() and torrent.state not in state_map_for_filtering[status_filter]:
+                continue
             # build display-agnostic torrent info in list of Texts
-            state = state_map[torrent.state] if torrent.state in state_map else torrent.state
+            state = state_map_for_display[torrent.state] if torrent.state in state_map_for_display else torrent.state
             size = natural_file_size(torrent.size, gnu=True).rjust(6)
             pb = DownloadProgressBar('pg normal', 'pg complete',
                                      current=torrent.completed,
@@ -683,7 +741,7 @@ class TorrentListWindow(urwid.Frame):
                 attr = ''
 
             # add row to list
-            torrent_row_w.set_torrent_hash(hash)
+            torrent_row_w.set_torrent_hash(torrent_hash)
             torrent_list.append(urwid.AttrMap(torrent_row_w, attr, focus_map='selected'))
 
         return torrent_list if torrent_list else [
