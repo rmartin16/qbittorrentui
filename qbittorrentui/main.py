@@ -8,6 +8,8 @@ from qbittorrentui.windows import TorrentListWindow
 from qbittorrentui.windows import ConnectWindow
 from qbittorrentui.poller import Poller
 from qbittorrentui.events import request_to_initialize_torrent_list
+from qbittorrentui.events import sync_maindata_ready
+from qbittorrentui.events import details_ready
 
 try:
     logging.basicConfig(level=logging.INFO,
@@ -20,6 +22,8 @@ logger = logging.getLogger(__name__)
 
 
 class Main(object):
+    loop: urwid.MainLoop
+
     def __init__(self):
         super(Main, self).__init__()
         self.torrent_client = Connector(host='localhost:8080', username='test', password='testtes')
@@ -33,7 +37,16 @@ class Main(object):
         self.torrent_options_window = None
         self.first_window = None
 
-        self.maindata_poller = Poller(self)
+        self.bg_poller = None
+
+    @staticmethod
+    def loop_refresh_request(*a, **kw):
+        reason = a[0]
+        sync_maindata_ready.send('main loop%s' % (" for %s" % reason.decode()) if reason else "")
+
+    @staticmethod
+    def loop_refresh_details_request(*a, **kw):
+        details_ready.send('main loop')
 
     def _setup_screen(self):
         logger.info("Creating screen")
@@ -102,26 +115,29 @@ class Main(object):
                                    )
         logger.info("Created urwid loop")
 
-    def _start_maindata_poller_daemon(self):
+    def _start_bg_poller_daemon(self):
         logger.info("Starting maindata poller")
-        t = Thread(target=self.maindata_poller.start_data_fetch_loop, daemon=True)
+        fd_new_maindata = self.loop.watch_pipe(callback=self.loop_refresh_request)
+        fd_new_details = self.loop.watch_pipe(callback=self.loop_refresh_details_request)
+        self.bg_poller = Poller(self, fd_new_maindata=fd_new_maindata, fd_new_details=fd_new_details)
+        t = Thread(target=self.bg_poller.start_bg_loop, daemon=True)
         t.start()
         logger.info("Started maindata poller")
 
     def _start_tui(self):
+        def _initialize_torrent_list_if_connected(*a, **kw):
+            if self.torrent_client.is_connected:
+                logger.info("Initializing torrent list")
+                request_to_initialize_torrent_list.send('loop startup')
         logger.info("Starting urwid loop")
-        self.loop.set_alarm_in(.01, callback=self._initialize_torrent_list_if_connected)
+        self.loop.set_alarm_in(.001, callback=_initialize_torrent_list_if_connected)
         self.loop.run()
-
-    def _initialize_torrent_list_if_connected(self, *a, **kw):
-        if self.torrent_client.is_connected:
-            request_to_initialize_torrent_list.send('loop startup')
 
     def start(self):
         self._setup_screen()
         self._setup_windows()
         self._create_urwid_loop()
-        self._start_maindata_poller_daemon()
+        self._start_bg_poller_daemon()
         self._start_tui()
 
 

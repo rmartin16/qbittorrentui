@@ -14,6 +14,7 @@ from qbittorrentui.events import rebuild_torrent_list_now
 from qbittorrentui.events import refresh_torrent_list_with_remote_data_now
 from qbittorrentui.events import request_to_initialize_torrent_list
 from qbittorrentui.events import details_ready
+from qbittorrentui.events import refresh_request
 
 
 _APP_NAME = 'qBittorrenTUI'
@@ -205,7 +206,6 @@ class TorrentListWindow(urwid.Frame):
         self.client = main.torrent_client
 
         # initialize poll refresh data
-        self.md = AttrDict()
         self.torrents_info = AttrDict()
         self.server_state = AttrDict()
         self.categories = AttrDict()
@@ -371,7 +371,7 @@ class TorrentListWindow(urwid.Frame):
         if self.__width:
             return self.__width
         else:
-            return self.main.get_cols_rows()[1]
+            return self.main.ui.get_cols_rows()[1]
 
     def render(self, size, focus=False):
         # catch screen resize
@@ -392,6 +392,7 @@ class TorrentListWindow(urwid.Frame):
     def request_torrent_list_initialization(self, *a, **kw):
         """once connected to qbittorrent, initialize torrent list window"""
         sync_maindata_ready.connect(receiver=self.refresh_with_maindata)
+        refresh_request.connect(receiver=self.refresh)
         refresh_torrent_list_with_remote_data_now.send("initialization")
 
     def reset_torrent_list_focus(self, *a):
@@ -405,45 +406,57 @@ class TorrentListWindow(urwid.Frame):
         :param kw:
         :return:
         """
-        self.md = AttrDict(kw.pop('md', {}))
-        if self.md.get('full_update', False):
-            self.server_state = AttrDict(self.md.get('server_state', {}))
+        logger.info("maindata queue length: %s" % self.main.bg_poller.maindata_q.qsize())
+        # flush the queue if it backs up for any reason...
+        while self.main.bg_poller.maindata_q.qsize() > 0:
+            md = AttrDict(self.main.bg_poller.maindata_q.get())
+            if md.get('full_update', False):
+                self.server_state = AttrDict(md.get('server_state', {}))
 
-            self.torrents_info = AttrDict()
-            for torrent_hash, torrent in self.md.get('torrents', {}).items():
-                self.torrents_info[torrent_hash] = AttrDict(torrent)
+                self.torrents_info = AttrDict()
+                for torrent_hash, torrent in md.get('torrents', {}).items():
+                    self.torrents_info[torrent_hash] = AttrDict(torrent)
 
-            self.categories = AttrDict()
-            for category_name, category in self.md.get('categories', {}).items():
-                self.categories[category_name] = AttrDict(category)
-        else:
-            self.server_state.update(AttrDict(self.md.get('server_state', {})))
+                self.categories = AttrDict()
+                for category_name, category in md.get('categories', {}).items():
+                    self.categories[category_name] = AttrDict(category)
+            else:
+                self.server_state.update(AttrDict(md.get('server_state', {})))
 
-            # remove torrents no longer in qbittorrent
-            for torrent_hash in self.md.get('torrents_removed', {}):
-                self.torrents_info.pop(torrent_hash, None)
-            # add new torrents or new torrent info
-            for torrent_hash, torrent in self.md.get('torrents', {}).items():
-                if torrent_hash in self.torrents_info:
-                    self.torrents_info[torrent_hash].update(torrent)
-                else:
-                    self.torrents_info[torrent_hash] = torrent
+                # remove torrents no longer in qbittorrent
+                for torrent_hash in md.get('torrents_removed', {}):
+                    self.torrents_info.pop(torrent_hash, None)
+                # add new torrents or new torrent info
+                for torrent_hash, torrent in md.get('torrents', {}).items():
+                    if torrent_hash in self.torrents_info:
+                        self.torrents_info[torrent_hash].update(torrent)
+                    else:
+                        self.torrents_info[torrent_hash] = torrent
 
-            # remove categories no longer in qbittorrent
-            for category in self.md.get('categories_removed', {}):
-                self.categories.pop(category, None)
-            # add new categories or new category info
-            for category_name, category in self.md.get('categories', {}).items():
-                if category in self.categories:
-                    self.categories[category_name].update(category)
-                else:
-                    self.categories[category_name] = category
-
-        rebuild_torrent_list_now.send('refresh with maindata')
-        self.main.loop.draw_screen()
-        self.md = AttrDict()
+                # remove categories no longer in qbittorrent
+                for category in md.get('categories_removed', {}):
+                    self.categories.pop(category, None)
+                # add new categories or new category info
+                for category_name, category in md.get('categories', {}).items():
+                    if category in self.categories:
+                        self.categories[category_name].update(category)
+                    else:
+                        self.categories[category_name] = category
+            self.refresh(a[0])
 
     def refresh(self, *a, **kw):
+        """
+        Rebuilds and refreshes the torrent list.
+
+        If new data should be incorporated in to the torrent list, populate the dictionaries below:
+            self.server_state
+            self.torrents_info
+            self.categories
+
+        :param a:
+        :param kw:
+        :return:
+        """
         refresh_start_time = time()
         sender = a[0]
         logger.info("Refreshing Torrent List %s" % "(from %s)" % (sender if sender else "from unknown"))
@@ -476,13 +489,9 @@ class TorrentListWindow(urwid.Frame):
         logger.info("Time to refresh: %.2f" % (time() - refresh_start_time))
 
     def update_details(self, *a, **kw):
-        ver = kw.pop('version', "")
-        if ver != "":
-            self.torrent_manager_version = ver
-
-        conn_port = kw.pop('conn_port', "")
-        if conn_port != "":
-            self.connection_port = conn_port
+        self.torrent_manager_version = self.main.bg_poller.client_details.get('version', "")
+        self.connection_port = self.main.bg_poller.client_details.get('conn_port', "")
+        self.refresh('update details')
 
     def _build_status_bar_w(self):
         """

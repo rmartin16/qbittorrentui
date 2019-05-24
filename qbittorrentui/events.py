@@ -1,6 +1,9 @@
 import blinker
 
 
+refresh_request = blinker.Signal()
+""""""
+
 sync_maindata_ready = blinker.Signal()
 """signal from poller to send maindata to receivers"""
 
