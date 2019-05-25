@@ -82,14 +82,28 @@ class Connector:
             return self._qbt_client.app_version()
 
     @connection_required
-    def connection_port(self):
+    def preferences(self):
         if self._client_type is ClientType.qbittorrent:
-            return self._qbt_client.app_preferences().web_ui_port
+            return self._qbt_client.app_preferences()
 
     @connection_required
     def transfer_info(self):
         if self._client_type is ClientType.qbittorrent:
             return self._qbt_client.transfer_info()
+
+    @connection_required
+    def torrents_add(self, urls=None, torrent_files=None, save_path=None, cookie=None, category=None,
+                     is_skip_checking=None, is_paused=None, is_root_folder=None, rename=None,
+                     upload_limit=None, download_limit=None, use_auto_torrent_management=None,
+                     is_sequential_download=None, is_first_last_piece_priority=None):
+        if self._client_type is ClientType.qbittorrent:
+            return self._qbt_client.torrents_add(urls=urls, torrent_files=torrent_files, save_path=save_path,
+                                                 cookie=cookie, category=category, is_skip_checking=is_skip_checking,
+                                                 is_paused=is_paused, is_root_folder=is_root_folder, rename=rename,
+                                                 upload_limit=upload_limit, download_limit=download_limit,
+                                                 use_auto_torrent_management=use_auto_torrent_management,
+                                                 is_sequential_download=is_sequential_download,
+                                                 is_first_last_piece_priority=is_first_last_piece_priority)
 
     @connection_required
     def torrent_properties(self, torrent_id):
@@ -170,6 +184,11 @@ class Connector:
     def torrents_set_category(self, category, torrent_ids):
         if self._client_type is ClientType.qbittorrent:
             self._qbt_client.torrents_set_category(category=category, hashes=torrent_ids)
+
+    @connection_required
+    def torrents_set_share_limits(self, ratio_limit, seeding_time_limit, torrent_ids):
+        if self._client_type is ClientType.qbittorrent:
+            self._qbt_client.torrents_set_share_limits(ratio_limit=ratio_limit, seeding_time_limit=seeding_time_limit, hashes=torrent_ids)
 
     @connection_required
     def sync_maindata(self, rid):

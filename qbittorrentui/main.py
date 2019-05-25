@@ -1,4 +1,4 @@
-import urwid
+import urwid as uw
 import logging
 from threading import Thread
 
@@ -22,11 +22,11 @@ logger = logging.getLogger(__name__)
 
 
 class Main(object):
-    loop: urwid.MainLoop
+    loop: uw.MainLoop
 
     def __init__(self):
         super(Main, self).__init__()
-        self.torrent_client = Connector(host='localhost:8080', username='test', password='testtes')
+        self.torrent_client = Connector(host='localhost:8080', username='test', password='testtest')
 
         self.ui = None
         self.loop = None
@@ -50,22 +50,22 @@ class Main(object):
 
     def _setup_screen(self):
         logger.info("Creating screen")
-        self.ui = urwid.raw_display.Screen()
+        self.ui = uw.raw_display.Screen()
         self.ui.set_terminal_properties(colors=256)
         logger.info("Created screen")
 
     def _setup_windows(self):
         logger.info("Creating windows")
-        self.connect_w = urwid.Filler(ConnectWindow(main=self))
+        self.connect_w = ConnectWindow(main=self)
         self.torrent_list_window = TorrentListWindow(main=self)
-        # self.torrent_window = urwid.ListBox(urwid.SimpleFocusListWalker([urwid.Text("Welcome to the torrent window")]))
-        self.connect_window = urwid.Overlay(top_w=urwid.LineBox(self.connect_w),
-                                            bottom_w=self.torrent_list_window,
-                                            align=urwid.CENTER,
-                                            width=50,
-                                            valign=urwid.MIDDLE,
-                                            height=15,
-                                            )
+        # self.torrent_window=uw.ListBox(uw.SimpleFocusListWalker([uw.Text("Welcome to the torrent window")]))
+        self.connect_window = uw.Overlay(top_w=uw.LineBox(self.connect_w),
+                                         bottom_w=self.torrent_list_window,
+                                         align=uw.CENTER,
+                                         width=(uw.RELATIVE, 50),
+                                         valign=uw.MIDDLE,
+                                         height=(uw.RELATIVE, 50),
+                                         )
         try:
             self.torrent_client.connect()
             self.first_window = self.torrent_list_window
@@ -103,16 +103,16 @@ class Main(object):
 
         def unhandled_input(key):
             if key in ('q', 'Q'):
-                raise urwid.ExitMainLoop()
+                raise uw.ExitMainLoop()
 
-        self.loop = urwid.MainLoop(widget=self.first_window,
-                                   screen=self.ui,
-                                   handle_mouse=False,
-                                   unhandled_input=unhandled_input,
-                                   palette=palette,
-                                   event_loop=None,
-                                   pop_ups=True,
-                                   )
+        self.loop = uw.MainLoop(widget=self.first_window,
+                                screen=self.ui,
+                                handle_mouse=False,
+                                unhandled_input=unhandled_input,
+                                palette=palette,
+                                event_loop=None,
+                                pop_ups=True,
+                                )
         logger.info("Created urwid loop")
 
     def _start_bg_poller_daemon(self):
@@ -129,6 +129,7 @@ class Main(object):
             if self.torrent_client.is_connected:
                 logger.info("Initializing torrent list")
                 request_to_initialize_torrent_list.send('loop startup')
+
         logger.info("Starting urwid loop")
         self.loop.set_alarm_in(.001, callback=_initialize_torrent_list_if_connected)
         self.loop.run()

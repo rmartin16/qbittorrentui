@@ -6,6 +6,13 @@ Console UI for qBittorrent. Functional but a little buggy currently...
 
 ![qbittorrentui screensho 2t](https://i.imgur.com/msRNi86.png)
 
+Key Map
+-------
+Torrent List
+* enter : open context menu for selected torrent
+* right arrow: open selected torrent details window
+* a : open add torrent dialog
+
 Installation
 ------------
 ```bash

@@ -1,6 +1,8 @@
 import logging
 import os
 import queue
+from attrdict import AttrDict
+from threading import RLock
 from time import time, sleep
 
 from qbittorrentui.connector import Connector
@@ -28,7 +30,11 @@ class Poller:
         self.fd_new_maindata = kw.pop('fd_new_maindata', None)
         self.fd_new_details = kw.pop('fd_new_details', None)
         self.maindata_q = queue.Queue()
-        self.client_details = {}
+        self.server_details = {'server_version': "",
+                               'api_conn_port': ""}
+        self.server_preferences = AttrDict()
+        self.server_details_lock = RLock()
+        self.server_preferences_lock = RLock()
 
         # signals to respond to
         refresh_torrent_list_with_remote_data_now.connect(receiver=self._one_sync_maindata_loop)
@@ -82,16 +88,44 @@ class Poller:
             logger.info("Sync maindata reset")
             self.rid = 0
 
+    def get_preferences(self):
+        self.server_preferences_lock.acquire()
+        prefs = self.server_preferences
+        self.server_preferences_lock.release()
+        return prefs
+
+    def set_preferences(self, prefs):
+        self.server_preferences_lock.acquire()
+        self.server_preferences = prefs
+        self.server_preferences_lock.release()
+
+    def set_server_detail(self, key, value):
+        self.server_details_lock.acquire()
+        self.server_details[key] = value
+        self.server_details_lock.release()
+
+    def get_server_details(self, detail=None):
+        self.server_details_lock.acquire()
+        details = self.server_details
+        self.server_details_lock.release()
+        if detail is None:
+            return details
+        else:
+            return details.get(detail, "")
+
     def _run_detail_fetch(self, *a, **kw):
         new_details = False
-        torrent_manager_version = self.client.version()
-        connection_port = self.client.connection_port()
+        server_version = self.client.version()
+        preferences = self.client.preferences()
+        connection_port = preferences.web_ui_port
 
-        if torrent_manager_version != self.client_details.get('version', ""):
-            self.client_details['version'] = torrent_manager_version
+        self.set_preferences(preferences)
+
+        if server_version != self.get_server_details('server_version'):
+            self.set_server_detail('server_version', server_version)
             new_details = True
-        if connection_port != self.client_details.get('conn_port', ""):
-            self.client_details['conn_port'] = connection_port
+        if connection_port != self.get_server_details('api_conn_port'):
+            self.set_server_detail('api_conn_port', connection_port)
             new_details = True
 
         if new_details:
