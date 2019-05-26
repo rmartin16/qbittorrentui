@@ -55,6 +55,11 @@ class Poller(threading.Thread):
         logging.info("Set Poller to wake up and loop (from %s)" % a[0])
         self.wake_up.set()
 
+    def is_queues_empty(self):
+        if not self.command_q.empty():
+            return False
+        return True
+
     def run(self):
         while not self.stop_request.is_set():
             start_time = time()
@@ -69,14 +74,16 @@ class Poller(threading.Thread):
             except Exception:
                 logger.info("Data poller daemon crashed", exc_info=True)
             finally:
-                # clear any potential alarms
-                self.wake_up.clear()
+                # clear any potential alarms if queues are empty
+                if self.is_queues_empty():
+                    self.wake_up.clear()
                 # wait for next loop
                 poll_time = time() - start_time
                 if poll_time < POLL_INTERVAL:
                     self.wake_up.wait(POLL_INTERVAL - poll_time)
 
     def _run_commands(self):
+        logger.info("Command queue length: %s" % self.command_q.qsize())
         while not self.command_q.empty():
             try:
                 command = self.command_q.get()

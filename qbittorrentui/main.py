@@ -97,7 +97,7 @@ class TorrentServer:
 
 
 HOST = 'localhost:8080'
-USERNAME = 'tes'
+USERNAME = 'test'
 PASSWORD = 'testtest'
 
 
@@ -199,7 +199,8 @@ class Main(object):
         self._start_bg_poller_daemon()
         self._setup_windows()
         # show splash screen for at least one second
-        sleep(1 - (time() - start_time))
+        if 1 - (time() - start_time) > 0:
+            sleep(1 - (time() - start_time))
         self.loop.set_alarm_in(.001, callback=self._show_application)
 
     def _start_bg_poller_daemon(self):
