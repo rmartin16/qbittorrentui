@@ -287,7 +287,7 @@ class ConnectBox(uw.ListBox):
             self.client.connect(host="%s%s" % (self.hostname_w.get_edit_text(), ":%s" % port if port else ""),
                                 username=self.username_w.get_edit_text(),
                                 password=self.password_w.get_edit_text())
-            self.main.loop.widget = self.main.torrent_list_window
+            self.main.loop.widget = self.main.app_window
             request_to_initialize_torrent_list.send('connect window')
         except LoginFailed:
             self.error_w.set_text("Error: login failed")
