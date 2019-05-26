@@ -326,7 +326,7 @@ class TorrentListBox(uw.Pile):
         uw.register_signal(type(self.torrent_tabs_w), 'change')
         uw.connect_signal(self.torrent_tabs_w,
                           'change',
-                          self.refresh,
+                          self.refresh_torrent_list,
                           user_args=["torrents_tabs_w change"])
         uw.register_signal(type(self.torrent_tabs_w), 'reset list focus')
         uw.connect_signal(self.torrent_tabs_w,
@@ -344,7 +344,7 @@ class TorrentListBox(uw.Pile):
         # catch screen resize
         if self.__width != size[0]:
             self.__width = size[0]
-            # call to refresh on screen re-sizes
+            # call to refresh_torrent_list on screen re-sizes
             rebuild_torrent_list_now.send('torrent list render')
         logger.info("Rendering Torrent List window")
         return super(TorrentListBox, self).render(size, focus)
@@ -365,86 +365,12 @@ class TorrentListBox(uw.Pile):
 
     def request_torrent_list_initialization(self, *a, **kw):
         """once connected to qbittorrent, initialize torrent list window"""
-        server_torrents_changed.connect(receiver=self.update)
-        rebuild_torrent_list_now.connect(receiver=self.refresh)
+        server_torrents_changed.connect(receiver=self.update_torrent_list)
+        rebuild_torrent_list_now.connect(receiver=self.refresh_torrent_list)
         refresh_torrent_list_with_remote_data_now.send("initialization")
 
-    def set_torrent_list_focus(self, *a, **kw):
-        """
-        Focus torrent row with provided torrent hash or focus first row
-
-        :param a:
-        :param kw:
-        """
-        torrent_hash = kw.pop('torrent_hash', None)
-        found = False
-        if torrent_hash is not None:
-            for pos, torrent in enumerate(self.torrent_list_walker_w):
-                if torrent.base_widget.get_torrent_hash() == torrent_hash:
-                    self.torrent_list_walker_w.set_focus(pos)
-                    found = True
-                    break
-        if not found:
-            self.torrent_list_walker_w.set_focus(0)
-
-    def update(self, *a, **kw):
-        """
-        Update torrents with new data and refresh window.
-
-        :param a:
-        :param kw:
-        :return:
-        """
-        torrents = kw.pop('torrents', {})
-
-        # get torrent hash of focused torrent (none is no torrents)
-        torrent_hash_in_focus = self.torrent_list_w.get_torrent_hash_for_focused_row()
-
-        # remove torrents no longer on the server
-        # update any torrents found
-        for i, entry in enumerate(self.torrent_list_w.torrent_row_list):
-            torrent_row_w = entry.base_widget
-            if not isinstance(torrent_row_w, TorrentListBox.TorrentRow) or torrent_row_w.get_torrent_hash() not in torrents:
-                self.torrent_list_w.torrent_row_list.pop(i)
-            else:
-                torrent_row_w.update(torrents[torrent_row_w.get_torrent_hash()])
-
-        # add any new torrents
-        for torrent_hash, torrent in torrents.items():
-            found = False
-            for torrent_row_w in [entry.base_widget for entry in self.torrent_list_w.torrent_row_list]:
-                if torrent_row_w.get_torrent_hash() == torrent_hash:
-                    found = True
-                    break
-            if found is False:
-                self.torrent_list_w.torrent_row_list.append(TorrentListBox.TorrentRow(torrent_list_box_w=self,
-                                                                                      torrent_hash=torrent_hash,
-                                                                                      torrent=AttrDict(torrent)
-                                                                                      ))
-
-        self.refresh(a[0], torrent_hash_in_focus=torrent_hash_in_focus)
-
-    def refresh(self, *a, **kw):
-        """
-        Refreshes the torrent list using local torrent data.
-
-        :param a:
-        :param kw:
-        :return:
-        """
-
-        sender = a[0]
-        logger.info("Refreshing Torrent List %s" % "(from %s)" % (sender if sender else "from unknown"))
-
-        torrent_hash_in_focus = kw.pop('torrent_hash_in_focus', "")
-        if torrent_hash_in_focus == "":
-            torrent_hash_in_focus = self.torrent_list_w.get_torrent_hash_for_focused_row()
-
-        self.torrent_list_w.resize()
-
-        # put the relevant torrents in the walker
-        tab_pos = self.torrent_tabs_w.get_selected_tab()
-        status_filter = self.torrent_tabs_w[tab_pos].get_text()[0].lower()
+    def apply_torrent_list_filter(self):
+        status_filter = self.torrent_tabs_w.get_selected_tab_name()
         self.torrent_list_walker_w.clear()
         state_map_for_filtering = {'downloading': ['downloading',
                                                    'metaDL',
@@ -510,10 +436,88 @@ class TorrentListBox(uw.Pile):
         else:
             self.torrent_list_walker_w.extend(self.torrent_list_w.torrent_row_list)
 
+    def set_torrent_list_focus(self, *a, **kw):
+        """
+        Focus torrent row with provided torrent hash or focus first row
+
+        :param a:
+        :param kw:
+        """
+        torrent_hash = kw.pop('torrent_hash', None)
+        found = False
+        if torrent_hash is not None:
+            for pos, torrent in enumerate(self.torrent_list_walker_w):
+                if torrent.base_widget.get_torrent_hash() == torrent_hash:
+                    self.torrent_list_walker_w.set_focus(pos)
+                    found = True
+                    break
+        if not found:
+            self.torrent_list_walker_w.set_focus(0)
+
+    def update_torrent_list(self, *a, **kw):
+        """
+        Update torrents with new data and refresh_torrent_list window.
+
+        :param a:
+        :param kw:
+        :return:
+        """
+        sender = a[0]
+        logger.info("Updating Torrent List %s" % "(from %s)" % (sender if sender else "from unknown"))
+        start_time = time()
+
+        torrents = kw.pop('torrents', {})
+
+        # remove torrents no longer on the server
+        # update any torrents found
+        for i, entry in enumerate(self.torrent_list_w.torrent_row_list):
+            torrent_row_w = entry.base_widget
+            if not isinstance(torrent_row_w, TorrentListBox.TorrentRow) or torrent_row_w.get_torrent_hash() not in torrents:
+                self.torrent_list_w.torrent_row_list.pop(i)
+            else:
+                torrent_row_w.update(torrents[torrent_row_w.get_torrent_hash()])
+
+        # add any new torrents
+        for torrent_hash, torrent in torrents.items():
+            found = False
+            for torrent_row_w in [entry.base_widget for entry in self.torrent_list_w.torrent_row_list]:
+                if torrent_row_w.get_torrent_hash() == torrent_hash:
+                    found = True
+                    break
+            if found is False:
+                self.torrent_list_w.torrent_row_list.append(TorrentListBox.TorrentRow(torrent_list_box_w=self,
+                                                                                      torrent_hash=torrent_hash,
+                                                                                      torrent=AttrDict(torrent)
+                                                                                      ))
+        logger.info("Update took %.3f secs" % (time() - start_time))
+        self.refresh_torrent_list(sender)
+
+    def refresh_torrent_list(self, *a, **kw):
+        """
+        Refreshes the torrent list using local torrent data.
+
+        :param a:
+        :param kw:
+        :return:
+        """
+
+        sender = a[0]
+        logger.info("Refreshing Torrent List %s" % "(from %s)" % (sender if sender else "from unknown"))
+        start_time = time()
+
+        # save off focused row so it can be re-focused after refresh
+        torrent_hash_in_focus = self.torrent_list_w.get_torrent_hash_for_focused_row()
+
+        # dynamically resize torrent list based on window width
+        self.torrent_list_w.resize()
+
+        # put the relevant torrents in the walker
+        self.apply_torrent_list_filter()
+
         # re-focus same torrent if it still exists
         self.set_torrent_list_focus(torrent_hash=torrent_hash_in_focus)
 
-        logger.info("Finished refreshing %s" % "(from %s)" % (sender if sender else "from unknown"))
+        logger.info("Refresh took %.3f secs" % (time() - start_time))
 
     class TorrentListTabsColumns(uw.Columns):
         def __init__(self):
@@ -533,8 +537,8 @@ class TorrentListBox(uw.Pile):
             # TODO: replace references with get_focus()
             self.__selected_tab_pos = 0
 
-        def get_selected_tab(self):
-            return self.__selected_tab_pos
+        def get_selected_tab_name(self):
+            return self[self.__selected_tab_pos].get_text()[0].lower()
 
         def move_cursor_to_coords(self, size, col, row):
             """Don't change focus based on coords"""

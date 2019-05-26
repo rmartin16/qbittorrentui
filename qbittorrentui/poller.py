@@ -56,24 +56,23 @@ class Poller:
                     sleep(POLL_INTERVAL - poll_time)
 
     def _one_sync_maindata_loop(self, *a, **kw):
-        try:
-            self._run_sync_maindata_update()
-        finally:
-            self.sync_maindata_update_in_progress = False
-
-    def _run_sync_maindata_update(self, *a, **kw):
         if self.sync_maindata_update_in_progress is True:
             logger.info("Sync maindata update already in progress")
-            return
+        else:
+            try:
+                # proceed with update if one isn't already happening
+                self._run_sync_maindata_update()
+            finally:
+                self.sync_maindata_update_in_progress = False
 
-        # proceed with update if one isn't already happening
+    def _run_sync_maindata_update(self, *a, **kw):
+
         self.sync_maindata_update_in_progress = True
 
         logger.info("Requesting maindata (RID: %s)" % self.rid)
         start_time = time()
         md = self.client.sync_maindata(self.rid)
-        response_time = time() - start_time
-        logger.info("Received maindata (RID: %s) in %.3f secs" % (md.get('rid', ""), response_time))
+        logger.info("Response for maindata took %.3f secs" % (time() - start_time))
 
         # if no one is listening, reset syncing just in case the next send is the first time a receiver connects
         if sync_maindata_ready.receivers:
@@ -81,7 +80,7 @@ class Poller:
             # sync_maindata_ready.send("client poller", md=md)
             if self.fd_new_maindata is not None:
                 self.maindata_q.put(md)
-                os.write(self.fd_new_maindata, b"maindata refresh")
+                os.write(self.fd_new_maindata, b"maindata refresh_torrent_list")
                 self.rid = md.get('rid', self.rid)
             else:
                 logger.info("Failed to send new maindata; no FD to send on")
