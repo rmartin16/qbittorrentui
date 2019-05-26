@@ -1,8 +1,7 @@
 import urwid as uw
 import logging
 from attrdict import AttrDict
-from threading import Thread
-
+from time import time, sleep
 from qbittorrentui.connector import Connector
 from qbittorrentui.connector import ConnectorError
 from qbittorrentui.windows import AppWindow
@@ -97,13 +96,18 @@ class TorrentServer:
             server_torrents_changed.send('maindata update', torrents=self.torrents)
 
 
+HOST = 'localhost:8080'
+USERNAME = 'tes'
+PASSWORD = 'testtest'
+
+
 class Main(object):
     bg_poller: Poller
     loop: uw.MainLoop
 
     def __init__(self):
         super(Main, self).__init__()
-        self.torrent_client = Connector(self, host='localhost:8080', username='test', password='testtest')
+        self.torrent_client = Connector(self, host=HOST, username=USERNAME, password=PASSWORD)
 
         self.ui = None
         self.loop = None
@@ -136,29 +140,13 @@ class Main(object):
         logger.info("Creating screen")
         self.ui = uw.raw_display.Screen()
         self.ui.set_terminal_properties(colors=256)
-        logger.info("Created screen")
 
-    def _setup_windows(self):
-        logger.info("Creating windows")
-
-        self.connect_dialog_w = ConnectBox(main=self)
-
-        self.app_window = AppWindow(main=self)
-
-        # TODO: consider how to make the connect window more of a true dialog...may a popup
-        #       should also probably move this in to AppWindow
-        try:
-            self.torrent_client.connect()
-            self.first_window = self.app_window
-        except ConnectorError:
-            self.first_window = uw.Overlay(top_w=uw.LineBox(self.connect_dialog_w),
-                                           bottom_w=self.app_window,
-                                           align=uw.CENTER,
-                                           width=(uw.RELATIVE, 50),
-                                           valign=uw.MIDDLE,
-                                           height=(uw.RELATIVE, 50))
-
-        logger.info("Created windows")
+    def _setup_splash(self):
+        logger.info("Creating splash window")
+        self.splash_screen = uw.Overlay(
+            uw.BigText("qBittorrenTUI", uw.Thin6x6Font()),
+            uw.SolidFill(),
+            'center', None, 'middle', None)
 
     def _create_urwid_loop(self):
         logger.info("Creating urwid loop")
@@ -192,7 +180,7 @@ class Main(object):
             if key in ('q', 'Q'):
                 self.exit()
 
-        self.loop = uw.MainLoop(widget=self.first_window,
+        self.loop = uw.MainLoop(widget=self.splash_screen,
                                 screen=self.ui,
                                 handle_mouse=False,
                                 unhandled_input=unhandled_input,
@@ -200,32 +188,56 @@ class Main(object):
                                 event_loop=None,
                                 pop_ups=True,
                                 )
-        logger.info("Created urwid loop")
+
+    def _start_tui(self):
+        logger.info("Starting urwid loop")
+        self.loop.set_alarm_in(.001, callback=self._finish_setup)
+        self.loop.run()
+
+    def _finish_setup(self, *a, **kw):
+        start_time = time()
+        self._start_bg_poller_daemon()
+        self._setup_windows()
+        # show splash screen for at least one second
+        sleep(1 - (time() - start_time))
+        self.loop.set_alarm_in(.001, callback=self._show_application)
 
     def _start_bg_poller_daemon(self):
-        logger.info("Starting maindata poller")
+        logger.info("Starting background poller")
         fd_new_maindata = self.loop.watch_pipe(callback=self.loop_sync_maindata_ready)
         fd_new_details = self.loop.watch_pipe(callback=self.loop_server_details_ready)
         self.bg_poller = Poller(self, fd_new_maindata=fd_new_maindata, fd_new_details=fd_new_details)
         self.bg_poller.start()
         self.server = TorrentServer(bg_poller=self.bg_poller)
-        logger.info("Started maindata poller")
 
-    def _start_tui(self):
-        def _initialize_torrent_list_if_connected(*a, **kw):
-            if self.torrent_client.is_connected:
-                logger.info("Initializing torrent list")
-                request_to_initialize_torrent_list.send('loop startup')
+    def _setup_windows(self):
+        logger.info("Creating application windows")
+        self.connect_dialog_w = ConnectBox(main=self)
+        self.app_window = AppWindow(main=self)
 
-        logger.info("Starting urwid loop")
-        self.loop.set_alarm_in(.001, callback=_initialize_torrent_list_if_connected)
-        self.loop.run()
+        # TODO: consider how to make the connect window more of a true dialog...may a popup
+        #       should also probably move this in to AppWindow
+        try:
+            self.torrent_client.connect()
+            logger.info("Initializing torrent list from main")
+            request_to_initialize_torrent_list.send('loop startup')
+            self.first_window = self.app_window
+        except ConnectorError:
+            self.first_window = uw.Overlay(top_w=uw.LineBox(self.connect_dialog_w),
+                                           bottom_w=self.app_window,
+                                           align=uw.CENTER,
+                                           width=(uw.RELATIVE, 50),
+                                           valign=uw.MIDDLE,
+                                           height=(uw.RELATIVE, 50))
+
+    def _show_application(self, *a, **kw):
+        logger.info("Showing qBittorrenTUI")
+        self.loop.widget = self.first_window
 
     def start(self):
         self._setup_screen()
-        self._setup_windows()
+        self._setup_splash()
         self._create_urwid_loop()
-        self._start_bg_poller_daemon()
         self._start_tui()
 
 
