@@ -1,15 +1,19 @@
 import urwid as uw
 import logging
+from attrdict import AttrDict
 from threading import Thread
 
 from qbittorrentui.connector import Connector
 from qbittorrentui.connector import ConnectorError
-from qbittorrentui.windows import TorrentListWindow
-from qbittorrentui.windows import ConnectWindow
+from qbittorrentui.windows import AppWindow
+from qbittorrentui.windows import ConnectBox
 from qbittorrentui.poller import Poller
 from qbittorrentui.events import request_to_initialize_torrent_list
 from qbittorrentui.events import sync_maindata_ready
-from qbittorrentui.events import details_ready
+from qbittorrentui.events import server_details_ready
+from qbittorrentui.events import server_details_changed
+from qbittorrentui.events import server_state_changed
+from qbittorrentui.events import server_torrents_changed
 
 try:
     logging.basicConfig(level=logging.INFO,
@@ -21,6 +25,78 @@ except Exception:
 logger = logging.getLogger(__name__)
 
 
+class TorrentServer:
+    def __init__(self, bg_poller):
+        self.bg_poller = bg_poller
+        self.server_state = AttrDict()
+        self.torrents = AttrDict()
+        self.categories = AttrDict()
+        self.server_details = AttrDict()
+
+        server_details_ready.connect(receiver=self.update_details)
+        sync_maindata_ready.connect(receiver=self.update_maindata)
+
+    def update_details(self, *a, **kw):
+        self.server_details.update(self.bg_poller.get_server_details())
+        server_details_changed.send('torrent server', details=self.server_details)
+
+    def update_maindata(self, *a, **kw):
+        """
+        Retrieve maindata from bg poller and udpatelocal server state
+
+        :param a:
+        :param kw:
+        :return:
+        """
+        server_details_updated = False
+        server_torrents_updated = False
+
+        logger.info("maindata queue length: %s" % self.bg_poller.maindata_q.qsize())
+
+        # flush the queue if it backs up for any reason...
+        while self.bg_poller.maindata_q.qsize() > 0:
+            new_md = AttrDict(self.bg_poller.maindata_q.get())
+
+            if new_md.get('full_update', False):
+                self.server_state = AttrDict(new_md.server_state)
+                server_details_updated = True
+                self.torrents = AttrDict(new_md.torrents)
+                server_torrents_updated = True
+                self.categories = AttrDict(new_md.categories)
+
+            else:
+                if new_md.get('server_state', {}):
+                    self.server_state.update(AttrDict(new_md.get('server_state', {})))
+                    server_details_updated = True
+
+                # remove torrents no longer in qbittorrent
+                for torrent_hash in new_md.get('torrents_removed', {}):
+                    self.torrents.pop(torrent_hash)
+                    server_torrents_updated = True
+                # add new torrents or new torrent info
+                for torrent_hash, torrent in new_md.get('torrents', {}).items():
+                    server_torrents_updated = True
+                    if torrent_hash in self.torrents:
+                        self.torrents[torrent_hash].update(torrent)
+                    else:
+                        self.torrents[torrent_hash] = AttrDict(torrent)
+
+                # remove categories no longer in qbittorrent
+                for category in new_md.get('categories_removed', {}):
+                    self.categories.pop(category, None)
+                # add new categories or new category info
+                for category_name, category in new_md.get('categories', {}).items():
+                    if category in self.categories:
+                        self.categories[category_name].update(category)
+                    else:
+                        self.categories[category_name] = category
+
+        if server_details_updated:
+            server_state_changed.send('maindata update', server_state=self.server_state)
+        if server_torrents_updated:
+            server_torrents_changed.send('maindata update', torrents=self.torrents)
+
+
 class Main(object):
     loop: uw.MainLoop
 
@@ -30,8 +106,8 @@ class Main(object):
 
         self.ui = None
         self.loop = None
-        self.connect_w = None
-        self.torrent_list_window = None
+        self.connect_dialog_w = None
+        self.torrent_list_w = None
         self.torrent_window = None
         self.connect_window = None
         self.torrent_options_window = None
@@ -39,14 +115,16 @@ class Main(object):
 
         self.bg_poller = None
 
+        self.server = None
+
     @staticmethod
-    def loop_refresh_request(*a, **kw):
+    def loop_sync_maindata_ready(*a, **kw):
         reason = a[0]
         sync_maindata_ready.send('main loop%s' % (" for %s" % reason.decode()) if reason else "")
 
     @staticmethod
-    def loop_refresh_details_request(*a, **kw):
-        details_ready.send('main loop')
+    def loop_server_details_ready(*a, **kw):
+        server_details_ready.send('main loop')
 
     def _setup_screen(self):
         logger.info("Creating screen")
@@ -56,21 +134,24 @@ class Main(object):
 
     def _setup_windows(self):
         logger.info("Creating windows")
-        self.connect_w = ConnectWindow(main=self)
-        self.torrent_list_window = TorrentListWindow(main=self)
-        # self.torrent_window=uw.ListBox(uw.SimpleFocusListWalker([uw.Text("Welcome to the torrent window")]))
-        self.connect_window = uw.Overlay(top_w=uw.LineBox(self.connect_w),
-                                         bottom_w=self.torrent_list_window,
-                                         align=uw.CENTER,
-                                         width=(uw.RELATIVE, 50),
-                                         valign=uw.MIDDLE,
-                                         height=(uw.RELATIVE, 50),
-                                         )
+
+        self.connect_dialog_w = ConnectBox(main=self)
+
+        self.app_window = AppWindow(main=self)
+
+        # TODO: consider how to make the connect window more of a true dialog...may a popup
+        #       should also probably move this in to AppWindow
         try:
             self.torrent_client.connect()
-            self.first_window = self.torrent_list_window
+            self.first_window = self.app_window
         except ConnectorError:
-            self.first_window = self.connect_window
+            self.first_window = uw.Overlay(top_w=uw.LineBox(self.connect_dialog_w),
+                                           bottom_w=self.app_window,
+                                           align=uw.CENTER,
+                                           width=(uw.RELATIVE, 50),
+                                           valign=uw.MIDDLE,
+                                           height=(uw.RELATIVE, 50))
+
         logger.info("Created windows")
 
     def _create_urwid_loop(self):
@@ -117,11 +198,12 @@ class Main(object):
 
     def _start_bg_poller_daemon(self):
         logger.info("Starting maindata poller")
-        fd_new_maindata = self.loop.watch_pipe(callback=self.loop_refresh_request)
-        fd_new_details = self.loop.watch_pipe(callback=self.loop_refresh_details_request)
+        fd_new_maindata = self.loop.watch_pipe(callback=self.loop_sync_maindata_ready)
+        fd_new_details = self.loop.watch_pipe(callback=self.loop_server_details_ready)
         self.bg_poller = Poller(self, fd_new_maindata=fd_new_maindata, fd_new_details=fd_new_details)
         t = Thread(target=self.bg_poller.start_bg_loop, daemon=True)
         t.start()
+        self.server = TorrentServer(bg_poller=self.bg_poller)
         logger.info("Started maindata poller")
 
     def _start_tui(self):

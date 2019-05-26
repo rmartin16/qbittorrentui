@@ -9,6 +9,7 @@ from qbittorrentui.connector import Connector
 from qbittorrentui.connector import ConnectorError
 from qbittorrentui.events import sync_maindata_ready
 from qbittorrentui.events import refresh_torrent_list_with_remote_data_now
+from qbittorrentui.events import server_details_ready
 
 logger = logging.getLogger(__name__)
 
@@ -114,19 +115,22 @@ class Poller:
             return details.get(detail, "")
 
     def _run_detail_fetch(self, *a, **kw):
-        new_details = False
+
         server_version = self.client.version()
         preferences = self.client.preferences()
         connection_port = preferences.web_ui_port
 
         self.set_preferences(preferences)
 
-        if server_version != self.get_server_details('server_version'):
-            self.set_server_detail('server_version', server_version)
-            new_details = True
-        if connection_port != self.get_server_details('api_conn_port'):
-            self.set_server_detail('api_conn_port', connection_port)
-            new_details = True
+        new_details = False
+        if server_details_ready.receivers:
+            if server_version != self.get_server_details('server_version'):
+                self.set_server_detail('server_version', server_version)
+                new_details = True
+            if connection_port != self.get_server_details('api_conn_port'):
+                self.set_server_detail('api_conn_port', connection_port)
+                new_details = True
 
         if new_details:
             os.write(self.fd_new_details, b'x')
+

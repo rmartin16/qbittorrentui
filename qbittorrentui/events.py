@@ -1,14 +1,20 @@
 import blinker
 
 
-refresh_request = blinker.Signal()
-""""""
-
 sync_maindata_ready = blinker.Signal()
 """signal from poller to send maindata to receivers"""
 
-details_ready = blinker.Signal()
-"""signal for updated details about the torrent manager"""
+server_details_ready = blinker.Signal()
+"""signal that new details were retrieved from the torrent server"""
+
+server_details_changed = blinker.Signal()
+"""signal that new server details are available"""
+
+server_state_changed = blinker.Signal()
+"""signal that new server state information is available"""
+
+server_torrents_changed = blinker.Signal()
+"""signal that new information about torrents is available"""
 
 rebuild_torrent_list_now = blinker.Signal()
 """signal to rebuild torrent list using existing torrent data"""
