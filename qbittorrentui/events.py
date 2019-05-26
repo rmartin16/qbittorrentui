@@ -22,5 +22,8 @@ rebuild_torrent_list_now = blinker.Signal()
 refresh_torrent_list_with_remote_data_now = blinker.Signal()
 """signal for poller to immediately request any new torrent data (via sync maindata)"""
 
+run_server_command = blinker.Signal()
+"""signal for background poller to send commands to server"""
+
 request_to_initialize_torrent_list = blinker.Signal()
 """once torrent client is connected, signal to initialize the torrent list"""

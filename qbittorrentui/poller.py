@@ -2,6 +2,7 @@ import logging
 import os
 import queue
 from attrdict import AttrDict
+import threading
 from threading import RLock
 from time import time, sleep
 
@@ -10,24 +11,33 @@ from qbittorrentui.connector import ConnectorError
 from qbittorrentui.events import sync_maindata_ready
 from qbittorrentui.events import refresh_torrent_list_with_remote_data_now
 from qbittorrentui.events import server_details_ready
+from qbittorrentui.events import run_server_command
 
 logger = logging.getLogger(__name__)
 
 POLL_INTERVAL = 2
 
 
-class Poller:
+class Poller(threading.Thread):
     client: Connector
 
     def __init__(self, main, **kw):
         """
         Background poller to qbittorrent.
+        
         :param main:
         """
+        super(Poller, self).__init__()
+        self.setDaemon(daemonic=True)
+        self.stop_request = threading.Event()
+        self.wake_up = threading.Event()
+
+        self.command_q = queue.Queue()
+
         self.main = main
         self.client = main.torrent_client
+
         self.rid = 0
-        self.sync_maindata_update_in_progress = False
         self.fd_new_maindata = kw.pop('fd_new_maindata', None)
         self.fd_new_details = kw.pop('fd_new_details', None)
         self.maindata_q = queue.Queue()
@@ -38,37 +48,47 @@ class Poller:
         self.server_preferences_lock = RLock()
 
         # signals to respond to
-        refresh_torrent_list_with_remote_data_now.connect(receiver=self._one_sync_maindata_loop)
+        refresh_torrent_list_with_remote_data_now.connect(receiver=self.set_wake_up)
+        run_server_command.connect(receiver=self.set_wake_up)
 
-    def start_bg_loop(self):
-        while True:
+    def set_wake_up(self, *a, **kw):
+        logging.info("Set Poller to wake up and loop (from %s)" % a[0])
+        self.wake_up.set()
+
+    def run(self):
+        while not self.stop_request.is_set():
             start_time = time()
             try:
+                # process waiting server commands
+                self._run_commands()
+                # retrieve server updates
                 self._run_detail_fetch()
-                self._one_sync_maindata_loop()
+                self._run_sync_maindata_update()
             except ConnectorError:
                 logger.info("Poller could not connect to request data")
             except Exception:
-                logger.exception("Data poller daemon crashed")
+                logger.info("Data poller daemon crashed", exc_info=True)
             finally:
+                # clear any potential alarms
+                self.wake_up.clear()
+                # wait for next loop
                 poll_time = time() - start_time
                 if poll_time < POLL_INTERVAL:
-                    sleep(POLL_INTERVAL - poll_time)
+                    self.wake_up.wait(POLL_INTERVAL - poll_time)
 
-    def _one_sync_maindata_loop(self, *a, **kw):
-        if self.sync_maindata_update_in_progress is True:
-            logger.info("Sync maindata update already in progress")
-        else:
+    def _run_commands(self):
+        while not self.command_q.empty():
             try:
-                # proceed with update if one isn't already happening
-                self._run_sync_maindata_update()
-            finally:
-                self.sync_maindata_update_in_progress = False
+                command = self.command_q.get()
+                command_func = command.get('func', '')
+                command_args = command.get('func_args', {})
+                logger.info("Background command: %s" % command_func)
+                logger.info("Background command args: %s " % command_args)
+                command_func(**command_args)
+            except Exception:
+                logger.info("Failed to run command", exc_info=True)
 
-    def _run_sync_maindata_update(self, *a, **kw):
-
-        self.sync_maindata_update_in_progress = True
-
+    def _run_sync_maindata_update(self):
         logger.info("Requesting maindata (RID: %s)" % self.rid)
         start_time = time()
         md = self.client.sync_maindata(self.rid)
@@ -113,8 +133,7 @@ class Poller:
         else:
             return details.get(detail, "")
 
-    def _run_detail_fetch(self, *a, **kw):
-
+    def _run_detail_fetch(self):
         server_version = self.client.version()
         preferences = self.client.preferences()
         connection_port = preferences.web_ui_port

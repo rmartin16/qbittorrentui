@@ -3,6 +3,7 @@ from functools import wraps
 
 from qbittorrentapi import Client as qbt_Client
 from qbittorrentapi import exceptions as qbt_exceptions
+from qbittorrentui.events import run_server_command
 
 
 class ClientType(Enum):
@@ -33,7 +34,8 @@ def connection_required(f):
 class Connector:
     _qbt_client: qbt_Client
 
-    def __init__(self, client_type=ClientType.qbittorrent, host="", username="", password=""):
+    def __init__(self, main, client_type=ClientType.qbittorrent, host="", username="", password=""):
+        self.main = main
         self._client_type = client_type
         # self._qbt_client = None
         self.client_version = None
@@ -49,6 +51,11 @@ class Connector:
                     self.connect(host, username, password)
                 except ConnectorError:
                     pass
+
+    def send_command(self, func, func_args):
+        self.main.bg_poller.command_q.put({'func': func,
+                                           'func_args': func_args})
+        run_server_command.send('connector')
 
     def connect(self, host="", username="", password=""):
         if host == "":
@@ -118,32 +125,39 @@ class Connector:
     @connection_required
     def torrents_delete(self, torrent_ids, delete_files=False):
         if self._client_type is ClientType.qbittorrent:
-            self._qbt_client.torrents_delete(delete_files=delete_files, hashes=torrent_ids)
+            self.send_command(func=self._qbt_client.torrents_delete,
+                              func_args=dict(delete_files=delete_files,
+                                             hashes=torrent_ids))
 
     @connection_required
     def torrents_resume(self, torrent_ids):
         if self._client_type is ClientType.qbittorrent:
-            self._qbt_client.torrents_resume(hashes=torrent_ids)
+            self.send_command(func=self._qbt_client.torrents_resume,
+                              func_args=dict(hashes=torrent_ids))
 
     @connection_required
     def torrents_pause(self, torrent_ids):
         if self._client_type is ClientType.qbittorrent:
-            self._qbt_client.torrents_pause(hashes=torrent_ids)
+            self.send_command(func=self._qbt_client.torrents_pause,
+                              func_args=dict(hashes=torrent_ids))
 
     @connection_required
     def torrents_force_resume(self, torrent_ids):
         if self._client_type is ClientType.qbittorrent:
-            self._qbt_client.torrents_set_force_start(hashes=torrent_ids, enable=True)
+            self.send_command(func=self._qbt_client.torrents_set_force_start,
+                              func_args=dict(hashes=torrent_ids, enable=True))
 
     @connection_required
     def torrents_recheck(self, torrent_ids):
         if self._client_type is ClientType.qbittorrent:
-            self._qbt_client.torrents_recheck(hashes=torrent_ids)
+            self.send_command(func=self._qbt_client.torrents_recheck,
+                              func_args=dict(hashes=torrent_ids))
 
     @connection_required
     def torrents_reannounce(self, torrent_ids):
         if self._client_type is ClientType.qbittorrent:
-            self._qbt_client.torrents_reannounce(hashes=torrent_ids)
+            self.send_command(func=self._qbt_client.torrents_reannounce,
+                              func_args=dict(hashes=torrent_ids))
 
     @connection_required
     def torrents_categories(self):
@@ -153,42 +167,52 @@ class Connector:
     @connection_required
     def torrents_set_location(self, location, torrent_ids):
         if self._client_type is ClientType.qbittorrent:
-            self._qbt_client.torrents_set_location(location=location, hashes=torrent_ids)
+            self.send_command(func=self._qbt_client.torrents_set_location,
+                              func_args=dict(location=location, hashes=torrent_ids))
 
     @connection_required
     def torrent_rename(self, new_name, torrent_id):
         if self._client_type is ClientType.qbittorrent:
-            self._qbt_client.torrents_rename(new_torrent_name=new_name, hash=torrent_id)
+            self.send_command(func=self._qbt_client.torrents_rename,
+                              func_args=dict(new_torrent_name=new_name, hash=torrent_id))
 
     @connection_required
     def torrents_set_automatic_torrent_management(self, enable, torrent_ids):
         if self._client_type is ClientType.qbittorrent:
-            self._qbt_client.torrents_set_auto_management(enable=enable, hashes=torrent_ids)
+            self.send_command(func=self._qbt_client.torrents_set_auto_management,
+                              func_args=dict(enable=enable, hashes=torrent_ids))
 
     @connection_required
     def torrents_set_super_seeding(self, enable, torrent_ids):
         if self._client_type is ClientType.qbittorrent:
-            self._qbt_client.torrents_set_super_seeding(enable=enable, hashes=torrent_ids)
+            self.send_command(func=self._qbt_client.torrents_set_super_seeding,
+                              func_args=dict(enable=enable, hashes=torrent_ids))
 
     @connection_required
     def torrents_set_upload_limit(self, limit, torrent_ids):
         if self._client_type is ClientType.qbittorrent:
-            self._qbt_client.torrents_set_upload_limit(limit=limit, hashes=torrent_ids)
+            self.send_command(func=self._qbt_client.torrents_set_upload_limit,
+                              func_args=dict(limit=limit, hashes=torrent_ids))
 
     @connection_required
     def torrents_set_download_limit(self, limit, torrent_ids):
         if self._client_type is ClientType.qbittorrent:
-            self._qbt_client.torrents_set_download_limit(limit=limit, hashes=torrent_ids)
+            self.send_command(func=self._qbt_client.torrents_set_download_limit,
+                              func_args=dict(limit=limit, hashes=torrent_ids))
 
     @connection_required
     def torrents_set_category(self, category, torrent_ids):
         if self._client_type is ClientType.qbittorrent:
-            self._qbt_client.torrents_set_category(category=category, hashes=torrent_ids)
+            self.send_command(func=self._qbt_client.torrents_set_category,
+                              func_args=dict(category=category, hashes=torrent_ids))
 
     @connection_required
     def torrents_set_share_limits(self, ratio_limit, seeding_time_limit, torrent_ids):
         if self._client_type is ClientType.qbittorrent:
-            self._qbt_client.torrents_set_share_limits(ratio_limit=ratio_limit, seeding_time_limit=seeding_time_limit, hashes=torrent_ids)
+            self.send_command(func=self._qbt_client.torrents_set_share_limits,
+                              func_args=dict(ratio_limit=ratio_limit,
+                                             seeding_time_limit=seeding_time_limit,
+                                             hashes=torrent_ids))
 
     @connection_required
     def sync_maindata(self, rid):

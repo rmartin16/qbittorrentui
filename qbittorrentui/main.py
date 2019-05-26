@@ -98,11 +98,12 @@ class TorrentServer:
 
 
 class Main(object):
+    bg_poller: Poller
     loop: uw.MainLoop
 
     def __init__(self):
         super(Main, self).__init__()
-        self.torrent_client = Connector(host='localhost:8080', username='test', password='testtest')
+        self.torrent_client = Connector(self, host='localhost:8080', username='test', password='testtest')
 
         self.ui = None
         self.loop = None
@@ -114,7 +115,6 @@ class Main(object):
         self.first_window = None
 
         self.bg_poller = None
-
         self.server = None
 
     @staticmethod
@@ -125,6 +125,12 @@ class Main(object):
     @staticmethod
     def loop_server_details_ready(*a, **kw):
         server_details_ready.send('main loop')
+        
+    def exit(self):
+        self.bg_poller.stop_request.set()
+        self.bg_poller.wake_up.set()
+        self.bg_poller.join()
+        raise uw.ExitMainLoop()
 
     def _setup_screen(self):
         logger.info("Creating screen")
@@ -184,7 +190,7 @@ class Main(object):
 
         def unhandled_input(key):
             if key in ('q', 'Q'):
-                raise uw.ExitMainLoop()
+                self.exit()
 
         self.loop = uw.MainLoop(widget=self.first_window,
                                 screen=self.ui,
@@ -201,8 +207,7 @@ class Main(object):
         fd_new_maindata = self.loop.watch_pipe(callback=self.loop_sync_maindata_ready)
         fd_new_details = self.loop.watch_pipe(callback=self.loop_server_details_ready)
         self.bg_poller = Poller(self, fd_new_maindata=fd_new_maindata, fd_new_details=fd_new_details)
-        t = Thread(target=self.bg_poller.start_bg_loop, daemon=True)
-        t.start()
+        self.bg_poller.start()
         self.server = TorrentServer(bg_poller=self.bg_poller)
         logger.info("Started maindata poller")
 

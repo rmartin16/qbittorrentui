@@ -602,9 +602,13 @@ class TorrentListBox(uw.Pile):
             """
             # torrent info width with graphic progress bar: 115
 
-            max_name_len = max(map(len, [torrent_row_w.cached_torrent.name for torrent_row_w in self.torrent_row_list]))
-            for torrent_row_w in self.torrent_row_list:
-                torrent_row_w.resize_name_len(max_name_len)
+            name_list = [torrent_row_w.cached_torrent.name for torrent_row_w in self.torrent_row_list]
+            if name_list:
+                max_name_len = max(map(len, name_list))
+                for torrent_row_w in self.torrent_row_list:
+                    torrent_row_w.resize_name_len(max_name_len)
+            else:
+                max_name_len = 50
 
             if self.torrent_list_box_w.width < (max_name_len + 80):
                 for torrent_row_w in self.torrent_row_list:
@@ -1226,7 +1230,7 @@ class TorrentOptions(uw.ListBox):
         self.reset_screen_to_torrent_list_window()
 
     def reset_screen_to_torrent_list_window(self):
-        refresh_torrent_list_with_remote_data_now.send()
+        refresh_torrent_list_with_remote_data_now.send("torrent menu")
         self.main.loop.widget = self.main.app_window
 
 
@@ -1351,5 +1355,5 @@ class TorrentAdd(uw.ListBox):
         self.reset_screen_to_torrent_list_window()
 
     def reset_screen_to_torrent_list_window(self):
-        refresh_torrent_list_with_remote_data_now.send()
+        refresh_torrent_list_with_remote_data_now.send("torrent add")
         self.main.loop.widget = self.main.app_window
