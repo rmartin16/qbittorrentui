@@ -16,10 +16,10 @@ server_state_changed = blinker.Signal()
 server_torrents_changed = blinker.Signal()
 """signal that new information about torrents is available"""
 
-rebuild_torrent_list_now = blinker.Signal()
+refresh_torrent_list_now = blinker.Signal()
 """signal to rebuild torrent list using existing torrent data"""
 
-refresh_torrent_list_with_remote_data_now = blinker.Signal()
+update_torrent_list_now = blinker.Signal()
 """signal for poller to immediately request any new torrent data (via sync maindata)"""
 
 run_server_command = blinker.Signal()

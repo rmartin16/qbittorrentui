@@ -5,7 +5,6 @@ from qbittorrentapi import Client as qbt_Client
 from qbittorrentapi import exceptions as qbt_exceptions
 from qbittorrentui.events import run_server_command
 
-
 class ClientType(Enum):
     qbittorrent = 1
 
@@ -53,9 +52,8 @@ class Connector:
                     pass
 
     def send_command(self, func, func_args):
-        self.main.bg_poller.command_q.put({'func': func,
-                                           'func_args': func_args})
-        run_server_command.send('connector')
+        run_server_command.send('connector', command=self.main.daemon.create_command(func=func,
+                                                                                     func_args=func_args))
 
     def connect(self, host="", username="", password=""):
         if host == "":

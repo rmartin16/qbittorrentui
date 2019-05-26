@@ -9,8 +9,8 @@ from time import time
 from qbittorrentui.connector import Connector
 from qbittorrentui.connector import ConnectorError
 from qbittorrentui.connector import LoginFailed
-from qbittorrentui.events import rebuild_torrent_list_now
-from qbittorrentui.events import refresh_torrent_list_with_remote_data_now
+from qbittorrentui.events import refresh_torrent_list_now
+from qbittorrentui.events import update_torrent_list_now
 from qbittorrentui.events import request_to_initialize_torrent_list
 from qbittorrentui.events import server_details_changed
 from qbittorrentui.events import server_torrents_changed
@@ -345,7 +345,7 @@ class TorrentListBox(uw.Pile):
         if self.__width != size[0]:
             self.__width = size[0]
             # call to refresh_torrent_list on screen re-sizes
-            rebuild_torrent_list_now.send('torrent list render')
+            refresh_torrent_list_now.send('torrent list render')
         logger.info("Rendering Torrent List window")
         return super(TorrentListBox, self).render(size, focus)
 
@@ -366,8 +366,8 @@ class TorrentListBox(uw.Pile):
     def request_torrent_list_initialization(self, *a, **kw):
         """once connected to qbittorrent, initialize torrent list window"""
         server_torrents_changed.connect(receiver=self.update_torrent_list)
-        rebuild_torrent_list_now.connect(receiver=self.refresh_torrent_list)
-        refresh_torrent_list_with_remote_data_now.send("initialization")
+        refresh_torrent_list_now.connect(receiver=self.refresh_torrent_list)
+        update_torrent_list_now.send("initialization")
 
     def apply_torrent_list_filter(self):
         status_filter = self.torrent_tabs_w.get_selected_tab_name()
@@ -1230,7 +1230,7 @@ class TorrentOptions(uw.ListBox):
         self.reset_screen_to_torrent_list_window()
 
     def reset_screen_to_torrent_list_window(self):
-        refresh_torrent_list_with_remote_data_now.send("torrent menu")
+        update_torrent_list_now.send("torrent menu")
         self.main.loop.widget = self.main.app_window
 
 
@@ -1355,5 +1355,5 @@ class TorrentAdd(uw.ListBox):
         self.reset_screen_to_torrent_list_window()
 
     def reset_screen_to_torrent_list_window(self):
-        refresh_torrent_list_with_remote_data_now.send("torrent add")
+        update_torrent_list_now.send("torrent add")
         self.main.loop.widget = self.main.app_window

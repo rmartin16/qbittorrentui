@@ -2,11 +2,12 @@ import urwid as uw
 import logging
 from attrdict import AttrDict
 from time import time, sleep
+
 from qbittorrentui.connector import Connector
 from qbittorrentui.connector import ConnectorError
 from qbittorrentui.windows import AppWindow
 from qbittorrentui.windows import ConnectBox
-from qbittorrentui.poller import Poller
+from qbittorrentui.daemon import BackgroundManager
 from qbittorrentui.events import request_to_initialize_torrent_list
 from qbittorrentui.events import sync_maindata_ready
 from qbittorrentui.events import server_details_ready
@@ -25,8 +26,10 @@ logger = logging.getLogger(__name__)
 
 
 class TorrentServer:
-    def __init__(self, bg_poller):
-        self.bg_poller = bg_poller
+    daemon: BackgroundManager
+
+    def __init__(self, daemon):
+        self.daemon = daemon
         self.server_state = AttrDict()
         self.torrents = AttrDict()
         self.categories = AttrDict()
@@ -36,7 +39,7 @@ class TorrentServer:
         sync_maindata_ready.connect(receiver=self.update_maindata)
 
     def update_details(self, *a, **kw):
-        self.server_details.update(self.bg_poller.get_server_details())
+        self.server_details.update(self.daemon.get_server_details())
         server_details_changed.send('torrent server', details=self.server_details)
 
     def update_maindata(self, *a, **kw):
@@ -50,11 +53,11 @@ class TorrentServer:
         server_details_updated = False
         server_torrents_updated = False
 
-        logger.info("maindata queue length: %s" % self.bg_poller.maindata_q.qsize())
+        logger.info("maindata queue length: %s" % self.daemon.maindata_q.qsize())
 
         # flush the queue if it backs up for any reason...
-        while self.bg_poller.maindata_q.qsize() > 0:
-            new_md = AttrDict(self.bg_poller.maindata_q.get())
+        while self.daemon.maindata_q.qsize() > 0:
+            new_md = AttrDict(self.daemon.maindata_q.get())
 
             if new_md.get('full_update', False):
                 self.server_state = AttrDict(new_md.server_state)
@@ -102,13 +105,13 @@ PASSWORD = 'testtest'
 
 
 class Main(object):
-    bg_poller: Poller
+    torrent_client: Connector
+    daemon: BackgroundManager
     loop: uw.MainLoop
 
     def __init__(self):
         super(Main, self).__init__()
-        self.torrent_client = Connector(self, host=HOST, username=USERNAME, password=PASSWORD)
-
+        self.torrent_client = None
         self.ui = None
         self.loop = None
         self.connect_dialog_w = None
@@ -117,8 +120,7 @@ class Main(object):
         self.connect_window = None
         self.torrent_options_window = None
         self.first_window = None
-
-        self.bg_poller = None
+        self.daemon = None
         self.server = None
 
     @staticmethod
@@ -131,10 +133,12 @@ class Main(object):
         server_details_ready.send('main loop')
         
     def exit(self):
-        self.bg_poller.stop_request.set()
-        self.bg_poller.wake_up.set()
-        self.bg_poller.join()
+        self.daemon.stop_request.set()
+        self.daemon.join()
         raise uw.ExitMainLoop()
+
+    def _init(self):
+        self.torrent_client = Connector(self, host=HOST, username=USERNAME, password=PASSWORD)
 
     def _setup_screen(self):
         logger.info("Creating screen")
@@ -196,20 +200,20 @@ class Main(object):
 
     def _finish_setup(self, *a, **kw):
         start_time = time()
-        self._start_bg_poller_daemon()
+        self._start_daemon()
         self._setup_windows()
         # show splash screen for at least one second
         if 1 - (time() - start_time) > 0:
             sleep(1 - (time() - start_time))
         self.loop.set_alarm_in(.001, callback=self._show_application)
 
-    def _start_bg_poller_daemon(self):
+    def _start_daemon(self):
         logger.info("Starting background poller")
         fd_new_maindata = self.loop.watch_pipe(callback=self.loop_sync_maindata_ready)
         fd_new_details = self.loop.watch_pipe(callback=self.loop_server_details_ready)
-        self.bg_poller = Poller(self, fd_new_maindata=fd_new_maindata, fd_new_details=fd_new_details)
-        self.bg_poller.start()
-        self.server = TorrentServer(bg_poller=self.bg_poller)
+        self.daemon = BackgroundManager(self, fd_new_maindata=fd_new_maindata, fd_new_details=fd_new_details)
+        self.daemon.start()
+        self.server = TorrentServer(daemon=self.daemon)
 
     def _setup_windows(self):
         logger.info("Creating application windows")
@@ -236,6 +240,7 @@ class Main(object):
         self.loop.widget = self.first_window
 
     def start(self):
+        self._init()
         self._setup_screen()
         self._setup_splash()
         self._create_urwid_loop()
@@ -244,8 +249,10 @@ class Main(object):
 
 def run():
     try:
-        Main().start()
+        main = Main()
+        main.start()
     except Exception:
+        main.exit()
         import sys
         exc_type, exc_value, tb = sys.exc_info()
         if tb is not None:
