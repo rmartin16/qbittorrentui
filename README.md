@@ -8,7 +8,9 @@ Console UI for qBittorrent. Functional...but a little rough around the edges...
 
 Key Map
 -------
-Torrent List
+Any Window
+* q : exit
+Torrent List Window
 * a : open add torrent dialog
 * enter : open context menu for selected torrent
 * right arrow: open selected torrent details window (TODO)
