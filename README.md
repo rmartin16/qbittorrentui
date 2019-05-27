@@ -10,6 +10,7 @@ Key Map
 -------
 Any Window
 * q : exit
+
 Torrent List Window
 * a : open add torrent dialog
 * enter : open context menu for selected torrent
