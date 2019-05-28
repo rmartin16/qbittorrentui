@@ -1,16 +1,16 @@
 import urwid as uw
 import logging
+import blinker
 from attrdict import AttrDict
 from time import time, sleep
+
 
 from qbittorrentui.connector import Connector
 from qbittorrentui.connector import ConnectorError
 from qbittorrentui.windows import AppWindow
 from qbittorrentui.windows import ConnectBox
 from qbittorrentui.daemon import BackgroundManager
-from qbittorrentui.events import request_to_initialize_torrent_list
-from qbittorrentui.events import sync_maindata_ready
-from qbittorrentui.events import server_details_ready
+from qbittorrentui.events import initialize_torrent_list
 from qbittorrentui.events import server_details_changed
 from qbittorrentui.events import server_state_changed
 from qbittorrentui.events import server_torrents_changed
@@ -35,16 +35,13 @@ class TorrentServer:
         self.categories = AttrDict()
         self.server_details = AttrDict()
 
-        server_details_ready.connect(receiver=self.update_details)
-        sync_maindata_ready.connect(receiver=self.update_maindata)
-
-    def update_details(self, *a, **kw):
+    def update_details(self):
         self.server_details.update(self.daemon.get_server_details())
         server_details_changed.send('torrent server', details=self.server_details)
 
-    def update_maindata(self, *a, **kw):
+    def update_maindata(self):
         """
-        Retrieve maindata from bg poller and udpatelocal server state
+        Retrieve maindata from bg daemon and update local server state
 
         :param a:
         :param kw:
@@ -53,11 +50,9 @@ class TorrentServer:
         server_details_updated = False
         server_torrents_updated = False
 
-        logger.info("maindata queue length: %s" % self.daemon.maindata_q.qsize())
-
         # flush the queue if it backs up for any reason...
-        while self.daemon.maindata_q.qsize() > 0:
-            new_md = AttrDict(self.daemon.maindata_q.get())
+        while self.daemon.sync_maindata_q.qsize() > 0:
+            new_md = AttrDict(self.daemon.sync_maindata_q.get())
 
             if new_md.get('full_update', False):
                 self.server_state = AttrDict(new_md.server_state)
@@ -98,13 +93,22 @@ class TorrentServer:
         if server_torrents_updated:
             server_torrents_changed.send('maindata update', torrents=self.torrents)
 
+    def update_sync_torrents(self, torrent_hash):
+        store = self.daemon.get_torrent_store(torrent_hash=torrent_hash)
+        torrent = store.get('torrent', {})
+        properties = store.get('properties', {})
+        sync_torrent_data_ready = blinker.signal(torrent_hash)
+        sync_torrent_data_ready.send('sync_torrent_update', torrent=torrent, properties=properties)
+
 
 HOST = 'localhost:8080'
 USERNAME = 'test'
 PASSWORD = 'testtest'
+IS_TIMING_LOGGING_ENABLED = True
 
 
 class Main(object):
+    server: TorrentServer
     torrent_client: Connector
     daemon: BackgroundManager
     loop: uw.MainLoop
@@ -121,21 +125,52 @@ class Main(object):
         self.torrent_options_window = None
         self.first_window = None
         self.daemon = None
+        self.partial_daemon_signal = ""
         self.server = None
 
-    @staticmethod
-    def loop_sync_maindata_ready(*a, **kw):
-        reason = a[0]
-        sync_maindata_ready.send('main loop%s' % (" for %s" % reason.decode()) if reason else "")
+    def daemon_signal(self, signal):
+        signal_str = signal.decode()
+        # it's technically possible for the daemon to send multiple signals before
+        # the urwid event loop reads from the buffer. (this is most obvious if you set a
+        # breakpoint pausing the urwid loop.) therefore, signals can all be read together.
+        # this looping will allow each signal to still be processed as intended.
+        # additionally, if the buffer grows too large, the urwid documentation suggests
+        # only some of the buffer will be read in. so, if the signal string doesn't end
+        # in the daemon signal terminator, save off the end of the signal for the next loop.
+        if signal_str:
+            signal_list = signal_str.split(self.daemon.signal_terminator)
+            if signal_str.endswith(self.daemon.signal_terminator):
+                # if the signal list terminates as expected, prepend any partial signal
+                # to the first signal and process the signals
+                signal_list[0] = "%s%s" % (self.partial_daemon_signal, signal_list[0])
+                self.partial_daemon_signal = ""
+                # remove the last element since it'll just be an empty string
+                signal_list.pop(-1)
+            else:
+                # if the last signal doesnt end with the terminator, remove it from the
+                # signal list to be processed and concatenate to any previous partial signal
+                # saving the whole thing as the new partial signal.
+                # if the whole new signal string was a new partial, then nothing will be
+                # processed for this signal event.
+                self.partial_daemon_signal = "%s%s" % (self.partial_daemon_signal, signal_list.pop(-1))
+            for one_signal in signal_list:
+                if one_signal == "sync_maindata_ready":
+                    self.server.update_maindata()
+                elif one_signal == "server_details_ready":
+                    self.server.update_details()
+                elif one_signal.startswith("sync_torrent_data_ready"):
+                    torrent_hash = one_signal[one_signal.find(":")+1:]
+                    self.server.update_sync_torrents(torrent_hash=torrent_hash)
+                else:
+                    logger.info("Received unknown signal from daemon: %s" % one_signal, exc_info=True)
 
-    @staticmethod
-    def loop_server_details_ready(*a, **kw):
-        server_details_ready.send('main loop')
-        
     def exit(self):
-        self.daemon.stop_request.set()
-        self.daemon.join()
+        self.cleanup()
         raise uw.ExitMainLoop()
+
+    def cleanup(self):
+        self.daemon.stop()
+        self.daemon.join(2)
 
     def _init(self):
         self.torrent_client = Connector(self, host=HOST, username=USERNAME, password=PASSWORD)
@@ -198,20 +233,20 @@ class Main(object):
         self.loop.set_alarm_in(.001, callback=self._finish_setup)
         self.loop.run()
 
-    def _finish_setup(self, *a, **kw):
+    def _finish_setup(self, loop, _):
         start_time = time()
         self._start_daemon()
         self._setup_windows()
+        # TODO: add back
         # show splash screen for at least one second
-        if 1 - (time() - start_time) > 0:
-            sleep(1 - (time() - start_time))
-        self.loop.set_alarm_in(.001, callback=self._show_application)
+        # if 1 - (time() - start_time) > 0:
+        #    sleep(1 - (time() - start_time))
+        loop.set_alarm_in(.001, callback=self._show_application)
 
     def _start_daemon(self):
-        logger.info("Starting background poller")
-        fd_new_maindata = self.loop.watch_pipe(callback=self.loop_sync_maindata_ready)
-        fd_new_details = self.loop.watch_pipe(callback=self.loop_server_details_ready)
-        self.daemon = BackgroundManager(self, fd_new_maindata=fd_new_maindata, fd_new_details=fd_new_details)
+        logger.info("Starting background daemon")
+        daemon_signal_fd = self.loop.watch_pipe(callback=self.daemon_signal)
+        self.daemon = BackgroundManager(self.torrent_client, daemon_signal_fd=daemon_signal_fd)
         self.daemon.start()
         self.server = TorrentServer(daemon=self.daemon)
 
@@ -225,7 +260,7 @@ class Main(object):
         try:
             self.torrent_client.connect()
             logger.info("Initializing torrent list from main")
-            request_to_initialize_torrent_list.send('loop startup')
+            initialize_torrent_list.send('loop startup')
             self.first_window = self.app_window
         except ConnectorError:
             self.first_window = uw.Overlay(top_w=uw.LineBox(self.connect_dialog_w),
@@ -235,9 +270,9 @@ class Main(object):
                                            valign=uw.MIDDLE,
                                            height=(uw.RELATIVE, 50))
 
-    def _show_application(self, *a, **kw):
+    def _show_application(self, loop, _):
         logger.info("Showing qBittorrenTUI")
-        self.loop.widget = self.first_window
+        loop.widget = self.first_window
 
     def start(self):
         self._init()
@@ -252,8 +287,9 @@ def run():
         main = Main()
         main.start()
     except Exception:
-        main.exit()
+        # try to print some mildly helpful info about the crash
         import sys
+        from pprint import pprint as pp
         exc_type, exc_value, tb = sys.exc_info()
         if tb is not None:
             prev = tb
@@ -261,5 +297,11 @@ def run():
             while curr is not None:
                 prev = curr
                 curr = curr.tb_next
-            print(prev.tb_frame.f_locals)
+            try:
+                pp(prev.tb_frame.f_locals)
+            except Exception:
+                pass
+
+        print()
+        main.cleanup()
         raise

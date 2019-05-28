@@ -5,6 +5,7 @@ from qbittorrentapi import Client as qbt_Client
 from qbittorrentapi import exceptions as qbt_exceptions
 from qbittorrentui.events import run_server_command
 
+
 class ClientType(Enum):
     qbittorrent = 1
 
@@ -18,7 +19,7 @@ class LoginFailed(ConnectorError):
 
 
 def connection_required(f):
-    """Ensure client is connected before calling API methods."""
+    """Ensure _client is connected before calling API methods."""
     @wraps(f)
     def wrapper(obj, *args, **kwargs):
         if not obj.is_logged_in:
@@ -52,8 +53,9 @@ class Connector:
                     pass
 
     def send_command(self, func, func_args):
-        run_server_command.send('connector', command=self.main.daemon.create_command(func=func,
-                                                                                     func_args=func_args))
+        run_server_command.send('connector',
+                                command=self.main.daemon.create_command(func=func,
+                                                                        func_args=func_args))
 
     def connect(self, host="", username="", password=""):
         if host == "":

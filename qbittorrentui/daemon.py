@@ -6,12 +6,16 @@ import threading
 from threading import RLock
 from time import time
 
+from qbittorrentui.events import IS_TIMING_LOGGING_ENABLED
+
 from qbittorrentui.connector import Connector
 from qbittorrentui.connector import ConnectorError
-from qbittorrentui.events import sync_maindata_ready
+from qbittorrentui.events import server_state_changed
+from qbittorrentui.events import server_torrents_changed
 from qbittorrentui.events import update_torrent_list_now
-from qbittorrentui.events import server_details_ready
+from qbittorrentui.events import server_details_changed
 from qbittorrentui.events import run_server_command
+from qbittorrentui.events import update_ui_from_daemon
 
 logger = logging.getLogger(__name__)
 
@@ -19,55 +23,83 @@ LOOP_INTERVAL = 2
 
 
 class BackgroundManager(threading.Thread):
-    client: Connector
+    _client: Connector
 
-    def __init__(self, main, **kw):
+    def __init__(self, torrent_client, daemon_signal_fd):
         super(BackgroundManager, self).__init__()
-        self.stop_request = threading.Event()
 
-        self.wake_up = threading.Event()
+        self._stop_request = threading.Event()
+        self._daemon_signal_fd = daemon_signal_fd  # use os.write to send signals back to UI
+        self._signal_terminator = "\n"
 
-        self.main = main
-        self.client = main.torrent_client
-
+        ########################################
+        # Create daemons and their interfaces
+        #  (these interfaces MUST be thread-safe)
+        ########################################
         # Sync MainData
-        self.sync_maindata_bg = SyncMainData(self, **kw)
-        self.maindata_q = queue.Queue()
+        self.sync_maindata_d = SyncMainData(torrent_client)
+        self.sync_maindata_q = self.sync_maindata_d.maindata_q
+
+        # Sync Torrents
+        self.sync_torrent_d = SyncTorrent(torrent_client)
+        self.remove_sync_torrent_hash = self.sync_torrent_d.remove_sync_torrent_hash
+        self.add_sync_torrent_hash = self.sync_torrent_d.add_sync_torrent_hash
+        self.get_torrent_store = self.sync_torrent_d.get_torrent_store
 
         # Server Details
-        self.server_details_bg = ServerDetails(self, **kw)
-        self.server_details = AttrDict({'server_version': "",
-                                        'api_conn_port': ""})
-        self.server_preferences = AttrDict()
-        self.server_details_lock = RLock()
-        self.server_preferences_lock = RLock()
+        self.server_details_d = ServerDetails(torrent_client)
+        self.get_server_details = self.server_details_d.get_server_details
+        self.get_server_preferences = self.server_details_d.get_server_preferences
 
         # Commands
-        self.commands_bg = Commands(self)
-        self.command_q = queue.Queue()
+        self.commands_d = Commands(torrent_client)
+        self.create_command = self.commands_d.create_command
+        self.run_command = self.commands_d.run_command
 
+        ########################################
+        # Signals
+        ########################################
+        update_torrent_list_now.connect(receiver=self.sync_maindata_d.set_wake_up)
+        run_server_command.connect(receiver=self.run_command)
+        update_ui_from_daemon.connect(receiver=self.signal_ui)
+
+        ########################################
+        # Enumerate the daemons
+        ########################################
         self.workers = [
-            self.sync_maindata_bg,
-            self.server_details_bg,
-            self.commands_bg
+            self.sync_maindata_d,
+            self.sync_torrent_d,
+            self.server_details_d,
+            self.commands_d
         ]
 
-        # signals to respond to
-        update_torrent_list_now.connect(receiver=self.sync_maindata_bg.set_wake_up)
-        run_server_command.connect(receiver=self.run_command)
+    @property
+    def signal_terminator(self):
+        return self._signal_terminator
+
+    def signal_ui(self, sender, signal: str = ""):
+        signal = "%s%s" % (signal, self._signal_terminator)
+        if isinstance(self._daemon_signal_fd, int):
+            os.write(self._daemon_signal_fd, signal.encode())
+        else:
+            raise Exception("Background daemon signal file descriptor is not valid")
+
+    def stop(self):
+        self._stop_request.set()
 
     def run(self):
         # start workers
         for worker in self.workers:
             worker.start()
 
-        while not self.stop_request.is_set():
+        # TODO: check if any workers died and restart them
+        while not self._stop_request.is_set():
             try:
                 pass
             except Exception:
                 pass
             finally:
-                self.stop_request.wait(timeout=LOOP_INTERVAL)
+                self._stop_request.wait(timeout=LOOP_INTERVAL)
 
         logger.info("Background manager received stop request")
 
@@ -76,177 +108,239 @@ class BackgroundManager(threading.Thread):
             worker.stop('shutdown')
             worker.join(timeout=1)
 
-    @staticmethod
-    def create_command(func=None, func_args: dict = None):
-        return dict(func=func, func_args=func_args)
-
-    def run_command(self, *a, **kw):
-        self.command_q.put(kw.get('command', ""))
-        self.commands_bg.set_wake_up(a[0])
-
-    def get_preferences(self):
-        self.server_preferences_lock.acquire()
-        prefs = self.server_preferences
-        self.server_preferences_lock.release()
-        return prefs
-
-    def set_preferences(self, prefs):
-        self.server_preferences_lock.acquire()
-        self.server_preferences = prefs
-        self.server_preferences_lock.release()
-
-    def set_server_detail(self, key, value):
-        self.server_details_lock.acquire()
-        self.server_details[key] = value
-        self.server_details_lock.release()
-
-    def get_server_details(self, detail=None):
-        self.server_details_lock.acquire()
-        details = self.server_details
-        self.server_details_lock.release()
-        if detail is None:
-            return details
-        else:
-            return details.get(detail, "")
+        os.close(self._daemon_signal_fd)
 
 
-class Looper(threading.Thread):
+class Daemon(threading.Thread):
+    client: Connector
     bg_man: BackgroundManager
 
-    def __init__(self, bg_man):
+    def __init__(self, torrent_client):
         """
-        Parent class for background daemons to send and receive data/commands with server
+        Base class for background daemons to send and receive data/commands with server.
 
-        :param bg_man:
+        :param torrent_client:
         """
-        super(Looper, self).__init__()
+        super(Daemon, self).__init__()
         self.setDaemon(daemonic=True)
         self.stop_request = threading.Event()
         self.wake_up = threading.Event()
 
-        self.loop_interval = LOOP_INTERVAL
+        self._loop_interval = LOOP_INTERVAL
 
-        self.bg_man = bg_man
+        self.client = torrent_client
 
     def stop(self, *a):
         self.stop_request.set()
         self.set_wake_up(*a)
 
-    def set_wake_up(self, *a, **kw):
-        try:
-            sender = a[0]
-        except IndexError:
-            sender = 'unknown'
-        logging.info("Wake up %s (from %s)" % (self.__class__.__name__, sender))
+    def signal_ui(self, signal: str):
+        # right now, this is intercepted by background manager
+        update_ui_from_daemon.send("%s" % self.__class__.__name__, signal=signal)
+
+    def set_wake_up(self, sender):
+        logging.info("Waking up %s (from %s)" % (self.__class__.__name__, sender))
         self.wake_up.set()
 
     def run(self):
         while not self.stop_request.is_set():
             start_time = time()
             try:
+                start_time = time()
                 self.wake_up.clear()
                 self._one_loop()
+                if IS_TIMING_LOGGING_ENABLED:
+                    logger.info("Daemon %s request (%.2fs)" % (self.__class__.__name__, time() - start_time))
             except ConnectorError:
-                logger.info("Looper %s could not connect to server" % self.__class__.__name__)
+                logger.info("Daemon %s could not connect to server" % self.__class__.__name__)
             except Exception:
-                logger.info("Looper %s crashed" % self.__class__.__name__, exc_info=True)
+                logger.info("Daemon %s crashed" % self.__class__.__name__, exc_info=True)
             finally:
                 # wait for next loop
                 poll_time = time() - start_time
-                if poll_time < self.loop_interval:
-                    self.wake_up.wait(self.loop_interval - poll_time)
+                if poll_time < self._loop_interval:
+                    self.wake_up.wait(self._loop_interval - poll_time)
 
-        logger.info("Exiting daemon: %s" % self.__class__.__name__)
+        logger.info("Daemon %s exiting" % self.__class__.__name__)
 
     def _one_loop(self):
         pass
 
 
-class SyncMainData(Looper):
-    def __init__(self, bg_man, **kw):
+class SyncMainData(Daemon):
+    def __init__(self, torrent_client):
         """
         Background daemon that syncs app with server
 
-        :param bg_man:
-        :param kw:
+        :param torrent_client:
         """
-        super(SyncMainData, self).__init__(bg_man)
+        super(SyncMainData, self).__init__(torrent_client)
 
-        self.rid = 0
-        self.fd_new_maindata = kw.get('fd_new_maindata', None)
+        self.maindata_q = queue.Queue()
+        self._rid = 0
 
     def _one_loop(self):
-        logger.info("Requesting maindata (RID: %s)" % self.rid)
-        start_time = time()
-        md = self.bg_man.client.sync_maindata(self.rid)
-        logger.info("Response for maindata took %.3f secs" % (time() - start_time))
-
         # if no one is listening, reset syncing just in case the next send is the first time a receiver connects
-        if sync_maindata_ready.receivers:
-            logger.info("Sending sync maindata")
-            # sync_maindata_ready.send("client poller", md=md)
-            if self.fd_new_maindata is not None:
-                self.bg_man.maindata_q.put(md)
-                os.write(self.fd_new_maindata, b"maindata refresh_torrent_list")
-                self.rid = md.get('rid', self.rid)
-            else:
-                logger.info("Failed to send new maindata; no FD to send on")
+        # TODO: add support to remotely reset RID when there's a new listener
+        #  that way I don't need to directly reference this signal here
+        if server_state_changed.receivers or server_torrents_changed.receivers:
+            md = self.client.sync_maindata(self._rid)
+            self.maindata_q.put(md)
+            self.signal_ui("sync_maindata_ready")
+            # only start incrementing once everyone is listening
+            if server_state_changed.receivers and server_torrents_changed.receivers:
+                self._rid = md.get('_rid', 0)  # reset syncing if '_rid' is missing from response...
         else:
-            logger.info("Sync maindata reset")
-            self.rid = 0
+            logger.info("No receivers for sync maindata...")
+            self._rid = 0
 
 
-class ServerDetails(Looper):
-    def __init__(self, bg_man, **kw):
+class SyncTorrent(Daemon):
+    def __init__(self, torrent_client):
+        """
+        Background daemon that syncs data for Torrent Window.
+
+        :param torrent_client:
+        """
+        super(SyncTorrent, self).__init__(torrent_client)
+
+        self._torrents_to_add_q = queue.Queue()
+        self._torrents_to_remove_q = queue.Queue()
+        self._torrent_hashes = []
+
+        self._torrent_store = dict()
+        """Structure:
+           { hash: { "torrent": {},
+                     "properties": {}
+                   }
+           }
+        """
+        self._torrent_store_lock = RLock()
+
+    def _one_loop(self):
+        while not self._torrents_to_add_q.empty():
+            self._torrent_hashes.append(self._torrents_to_add_q.get())
+        while not self._torrents_to_remove_q.empty():
+            self._torrent_hashes.remove(self._torrents_to_remove_q.get())
+
+        torrents_info = self.client.torrents_list(torrent_ids=[torrent_hash for torrent_hash in self._torrent_hashes])
+        torrents = {t['hash']: t for t in torrents_info}
+
+        for torrent_hash in self._torrent_hashes:
+            properties = self.client.torrent_properties(torrent_id=torrent_hash)
+            self.put_torrent_store(torrent_hash=torrent_hash,
+                                   torrent=torrents[torrent_hash],
+                                   properties=properties)
+
+            self.signal_ui("sync_torrent_data_ready:%s" % torrent_hash)
+
+    def add_sync_torrent_hash(self, torrent_hash: str):
+        self._torrents_to_add_q.put(torrent_hash)
+        self.set_wake_up("torrent hash added")
+
+    def remove_sync_torrent_hash(self, torrent_hash: str):
+        self._torrents_to_remove_q.put(torrent_hash)
+
+    def put_torrent_store(self, torrent_hash: str, torrent: dict = None, properties: dict = None):
+        self._torrent_store_lock.acquire()
+        if torrent_hash not in self._torrent_store:
+            self._torrent_store[torrent_hash] = dict()
+        if torrent:
+            self._torrent_store[torrent_hash]["torrent"] = torrent
+        if properties:
+            self._torrent_store[torrent_hash]["properties"] = properties
+        self._torrent_store_lock.release()
+
+    def get_torrent_store(self, torrent_hash: str):
+        self._torrent_store_lock.acquire()
+        store = self._torrent_store[torrent_hash]
+        self._torrent_store_lock.release()
+        return store
+
+
+class ServerDetails(Daemon):
+    def __init__(self, torrent_client):
         """
         Background daemon that syncs server details with app
 
-        :param bg_man:
-        :param kw:
+        :param torrent_client:
         """
-        super(ServerDetails, self).__init__(bg_man)
+        super(ServerDetails, self).__init__(torrent_client)
 
-        self.fd_new_details = kw.get('fd_new_details', None)
+        self._server_details = AttrDict({'server_version': "",
+                                        'api_conn_port': ""})
+        self._server_preferences = AttrDict()
+        self._server_details_lock = RLock()
+        self._server_preferences_lock = RLock()
 
     def _one_loop(self):
-        logger.info("Requesting server details")
-        start_time = time()
-        server_version = self.bg_man.client.version()
-        preferences = self.bg_man.client.preferences()
+        server_version = self.client.version()
+        preferences = self.client.preferences()
         connection_port = preferences.web_ui_port
-        logger.info("Response for server details took %.3f secs" % (time() - start_time))
 
-        self.bg_man.set_preferences(preferences)
+        self.set_preferences(preferences)
 
         new_details = False
-        if server_details_ready.receivers:
-            if server_version != self.bg_man.get_server_details('server_version'):
-                self.bg_man.set_server_detail('server_version', server_version)
+        if server_details_changed.receivers:
+            if server_version != self.get_server_details('server_version'):
+                self.set_server_detail('server_version', server_version)
                 new_details = True
-            if connection_port != self.bg_man.get_server_details('api_conn_port'):
-                self.bg_man.set_server_detail('api_conn_port', connection_port)
+            if connection_port != self.get_server_details('api_conn_port'):
+                self.set_server_detail('api_conn_port', connection_port)
                 new_details = True
 
         if new_details:
-            # just need to send "something" to trigger the signal
-            os.write(self.fd_new_details, b'x')
+            self.signal_ui("server_details_ready")
+
+    def get_server_preferences(self):
+        self._server_preferences_lock.acquire()
+        prefs = self._server_preferences
+        self._server_preferences_lock.release()
+        return prefs
+
+    def set_preferences(self, prefs):
+        self._server_preferences_lock.acquire()
+        self._server_preferences = prefs
+        self._server_preferences_lock.release()
+
+    def set_server_detail(self, key, value):
+        self._server_details_lock.acquire()
+        self._server_details[key] = value
+        self._server_details_lock.release()
+
+    def get_server_details(self, detail=None):
+        self._server_details_lock.acquire()
+        details = self._server_details
+        self._server_details_lock.release()
+        if detail is None:
+            return details
+        else:
+            return details.get(detail, "")
 
 
-class Commands(Looper):
-    def __init__(self, bg_man):
-        super(Commands, self).__init__(bg_man)
+# TODO: implement callback ability
+class Commands(Daemon):
+    def __init__(self, torrent_client):
+        """
+        Daemon to send commands to the server
+
+        :param torrent_client:
+        """
+        super(Commands, self).__init__(torrent_client)
 
         # set a long loop interval since anything sending
         # commands should also be setting the wake alarm
-        self.loop_interval = 60
+        self._loop_interval = 60
+
+        self._command_q = queue.Queue()
 
     def _one_loop(self):
-        logger.info("Command queue length: %s" % self.bg_man.command_q.qsize())
+        logger.info("Command queue length: %s" % self._command_q.qsize())
         ran_commands = False
-        while not self.bg_man.command_q.empty():
+        while not self._command_q.empty():
             ran_commands = True
             try:
-                command = self.bg_man.command_q.get()
+                command = self._command_q.get()
                 command_func = command.get('func', '')
                 command_args = command.get('func_args', {})
                 logger.info("Background command: %s" % command_func)
@@ -256,4 +350,12 @@ class Commands(Looper):
                 logger.info("Failed to run command", exc_info=True)
         # request server sync if commands were issued
         if ran_commands:
-            self.bg_man.sync_maindata_bg.set_wake_up('commands looper')
+            update_torrent_list_now.send('commands daemon')
+
+    @staticmethod
+    def create_command(func=None, func_args: dict = None):
+        return dict(func=func, func_args=func_args)
+
+    def run_command(self, sender, command=""):
+        self._command_q.put(command)
+        self.set_wake_up(sender)

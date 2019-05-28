@@ -3,18 +3,24 @@ from socket import getfqdn
 import logging
 from attrdict import AttrDict
 import panwid
+import blinker
+from datetime import datetime
 
 from time import time
+
+from qbittorrentui.events import IS_TIMING_LOGGING_ENABLED
 
 from qbittorrentui.connector import Connector
 from qbittorrentui.connector import ConnectorError
 from qbittorrentui.connector import LoginFailed
 from qbittorrentui.events import refresh_torrent_list_now
 from qbittorrentui.events import update_torrent_list_now
-from qbittorrentui.events import request_to_initialize_torrent_list
+from qbittorrentui.events import initialize_torrent_list
 from qbittorrentui.events import server_details_changed
 from qbittorrentui.events import server_torrents_changed
 from qbittorrentui.events import server_state_changed
+from qbittorrentui.events import torrent_window_tab_change
+
 
 _APP_NAME = 'qBittorrenTUI'
 logger = logging.getLogger(__name__)
@@ -144,7 +150,7 @@ class AppWindow(uw.Frame):
     def __init__(self, main):
         self.main = main
 
-        # build window
+        # build windows
         self.title_bar_w = AppTitleBar()
         self.status_bar_w = AppStatusBar()
         self.torrent_list_w = TorrentListBox(self.main)
@@ -156,39 +162,48 @@ class AppWindow(uw.Frame):
                                         footer=self.status_bar_w,
                                         focus_part='body')
 
+    def keypress(self, size, key):
+        log_keypress(self, key)
+        return super(AppWindow, self).keypress(size, key)
+
 
 class AppTitleBar(uw.Text):
     def __init__(self):
         """Application title bar."""
         super(AppTitleBar, self).__init__(markup="", align=uw.CENTER, wrap=uw.CLIP, layout=None)
-        self.refresh()
+        self.refresh("title bar init")
         server_details_changed.connect(receiver=self.refresh)
 
-    def refresh(self, *a, **kw):
-        logger.info("Refreshing title bar")
+    def refresh(self, sender, details: dict = None):
+        start_time = time()
+        if details is None:
+            details = {}
         app_name = _APP_NAME
         hostname = getfqdn()
-        details = kw.pop("details", {})
         self.set_text("%s (%s) %s:%s" % (app_name,
                                          details.get('server_version', ""),
                                          hostname,
                                          details.get('api_conn_port', "")
                                          )
                       )
+        if IS_TIMING_LOGGING_ENABLED:
+            logger.info("Updating title bar (from %s) (%.2fs)" % (sender, time() - start_time))
 
 
 class AppStatusBar(uw.Columns):
     def __init__(self):
         super(AppStatusBar, self).__init__(widget_list=[], dividechars=1, focus_column=None, min_width=1, box_columns=None)
-        self.refresh()
+        self.refresh("status bar init")
         server_state_changed.connect(receiver=self.refresh)
 
     def selectable(self):
         return False
 
-    def refresh(self, *a, **kw):
-        logger.info("Refreshing status bar")
-        server_state = kw.pop('server_state', {})
+    def refresh(self, sender, server_state: AttrDict = None):
+        start_time = time()
+
+        if server_state is None:
+            server_state = {}
 
         status = server_state.get('connection_status', 'disconnected')
 
@@ -228,6 +243,8 @@ class AppStatusBar(uw.Columns):
                                False)
                               )
                              )
+        if IS_TIMING_LOGGING_ENABLED:
+            logger.info("Updating status bar (from %s) (%.2fs)" % (sender, time() - start_time))
 
 
 class ConnectBox(uw.ListBox):
@@ -288,7 +305,7 @@ class ConnectBox(uw.ListBox):
                                 username=self.username_w.get_edit_text(),
                                 password=self.password_w.get_edit_text())
             self.main.loop.widget = self.main.app_window
-            request_to_initialize_torrent_list.send('connect window')
+            initialize_torrent_list.send('connect window')
         except LoginFailed:
             self.error_w.set_text("Error: login failed")
         except ConnectorError as e:
@@ -322,7 +339,7 @@ class TorrentListBox(uw.Pile):
                                               ])
 
         # signals
-        request_to_initialize_torrent_list.connect(receiver=self.request_torrent_list_initialization)
+        initialize_torrent_list.connect(receiver=self.torrent_list_init)
         uw.register_signal(type(self.torrent_tabs_w), 'change')
         uw.connect_signal(self.torrent_tabs_w,
                           'change',
@@ -342,12 +359,15 @@ class TorrentListBox(uw.Pile):
 
     def render(self, size, focus=False):
         # catch screen resize
+        start_time = time()
         if self.__width != size[0]:
             self.__width = size[0]
             # call to refresh_torrent_list on screen re-sizes
             refresh_torrent_list_now.send('torrent list render')
-        logger.info("Rendering Torrent List window")
-        return super(TorrentListBox, self).render(size, focus)
+        ret = super(TorrentListBox, self).render(size, focus)
+        if IS_TIMING_LOGGING_ENABLED:
+            logger.info("Rendering Torrent List window (%.2fs)" % (time() - start_time))
+        return ret
 
     def keypress(self, size, key):
         log_keypress(self, key)
@@ -363,7 +383,7 @@ class TorrentListBox(uw.Pile):
                                                )
         return key
 
-    def request_torrent_list_initialization(self, *a, **kw):
+    def torrent_list_init(self, sender):
         """once connected to qbittorrent, initialize torrent list window"""
         server_torrents_changed.connect(receiver=self.update_torrent_list)
         refresh_torrent_list_now.connect(receiver=self.refresh_torrent_list)
@@ -386,8 +406,7 @@ class TorrentListBox(uw.Pile):
                                                  'queuedUP',
                                                  'forcedUP',
                                                  ],
-                                   'active': ['stalledDL',
-                                              'metaDL',
+                                   'active': ['metaDL',
                                               'downloading',
                                               'forcedDL',
                                               'uploading',
@@ -396,6 +415,7 @@ class TorrentListBox(uw.Pile):
                                               ],
                                    'inactive': ['pausedUP',
                                                 'stalledUP',
+                                                'stalledDL',
                                                 'queuedDL',
                                                 'queuedUP',
                                                 'pausedDL',
@@ -436,14 +456,13 @@ class TorrentListBox(uw.Pile):
         else:
             self.torrent_list_walker_w.extend(self.torrent_list_w.torrent_row_list)
 
-    def set_torrent_list_focus(self, *a, **kw):
+    def set_torrent_list_focus(self, sender="", torrent_hash: str = None):
         """
         Focus torrent row with provided torrent hash or focus first row
 
-        :param a:
-        :param kw:
+        :param sender:
+        :param torrent_hash:
         """
-        torrent_hash = kw.pop('torrent_hash', None)
         found = False
         if torrent_hash is not None:
             for pos, torrent in enumerate(self.torrent_list_walker_w):
@@ -454,19 +473,18 @@ class TorrentListBox(uw.Pile):
         if not found:
             self.torrent_list_walker_w.set_focus(0)
 
-    def update_torrent_list(self, *a, **kw):
+    def update_torrent_list(self, sender, torrents=None):
         """
         Update torrents with new data and refresh_torrent_list window.
 
-        :param a:
-        :param kw:
+        :param sender:
+        :param torrents:
         :return:
         """
-        sender = a[0]
-        logger.info("Updating Torrent List %s" % "(from %s)" % (sender if sender else "from unknown"))
         start_time = time()
 
-        torrents = kw.pop('torrents', {})
+        if torrents is None:
+            torrents = dict()
 
         # remove torrents no longer on the server
         # update any torrents found
@@ -489,20 +507,18 @@ class TorrentListBox(uw.Pile):
                                                                                       torrent_hash=torrent_hash,
                                                                                       torrent=AttrDict(torrent)
                                                                                       ))
-        logger.info("Update took %.3f secs" % (time() - start_time))
+
+        if IS_TIMING_LOGGING_ENABLED:
+            logger.info("Updating Torrent List (from %s) (%.2fs)" % (sender, (time() - start_time)))
         self.refresh_torrent_list(sender)
 
-    def refresh_torrent_list(self, *a, **kw):
+    def refresh_torrent_list(self, sender):
         """
         Refreshes the torrent list using local torrent data.
 
-        :param a:
-        :param kw:
+        :param sender:
         :return:
         """
-
-        sender = a[0]
-        logger.info("Refreshing Torrent List %s" % "(from %s)" % (sender if sender else "from unknown"))
         start_time = time()
 
         # save off focused row so it can be re-focused after refresh
@@ -515,9 +531,10 @@ class TorrentListBox(uw.Pile):
         self.apply_torrent_list_filter()
 
         # re-focus same torrent if it still exists
-        self.set_torrent_list_focus(torrent_hash=torrent_hash_in_focus)
+        self.set_torrent_list_focus("torrent list refresh", torrent_hash=torrent_hash_in_focus)
 
-        logger.info("Refresh took %.3f secs" % (time() - start_time))
+        if IS_TIMING_LOGGING_ENABLED:
+            logger.info("Refreshing Torrent List (from %s) (%.2fs)" % (sender, (time() - start_time)))
 
     class TorrentListTabsColumns(uw.Columns):
         def __init__(self):
@@ -731,13 +748,13 @@ class TorrentListBox(uw.Pile):
             self.cached_torrent = AttrDict(torrent)
             self.torrent_info_columns_w.base_widget.update(torrent)
 
-        def resize_name_len(self, len):
+        def resize_name_len(self, name_length: int):
             for i, w in enumerate(self.torrent_info_columns_w.base_widget.contents):
                 if hasattr(w[0], 'name'):
                     if w[0].name == 'name':
                         self.torrent_info_columns_w.base_widget.contents[i] = (
-                            w[0], self.torrent_info_columns_w.base_widget.options(w[1][0], len, w[1][2]))
-            self.torrent_info_columns_w.base_widget.name_len = len
+                            w[0], self.torrent_info_columns_w.base_widget.options(w[1][0], name_length, w[1][2]))
+            self.torrent_info_columns_w.base_widget.name_len = name_length
 
         def swap_pb_bar_for_pb_text(self):
             for i, w in enumerate(self.torrent_info_columns_w.base_widget.contents):
@@ -786,10 +803,21 @@ class TorrentListBox(uw.Pile):
 
             self.main.loop.widget = self.main.torrent_options_window
 
+        def open_torrent_window(self):
+            torrent_window = TorrentWindow(self.main,
+                                           torrent_hash=self.get_torrent_hash(),
+                                           torrent=self.cached_torrent
+                                           )
+            self.main.app_window.body = torrent_window
+
         def keypress(self, size, key):
             log_keypress(self, key)
             if key == 'enter':
                 self.open_torrent_options_window()
+                return None
+            if key in ['right']:
+                self.open_torrent_window()
+                return None
             return key
 
         class TorrentInfoColumns(uw.Columns):
@@ -898,7 +926,7 @@ class TorrentListBox(uw.Pile):
                         "", wrap=uw.CLIP)
 
                     self.name = name
-                    self._format_func = format_func
+                    self.format_func = format_func
 
                     self._raw_value = None
                     self.raw_value = raw_value
@@ -913,7 +941,7 @@ class TorrentListBox(uw.Pile):
                 @raw_value.setter
                 def raw_value(self, v):
                     self._raw_value = v
-                    self.set_text(self._format_func(v))
+                    self.set_text(self.format_func(v))
 
                 def update(self, torrent: AttrDict):
                     try:
@@ -953,7 +981,330 @@ class TorrentListBox(uw.Pile):
 
 
 class TorrentWindow(uw.Columns):
-    pass
+    def __init__(self, main, torrent_hash, torrent):
+
+        self.tabs = {"General": TorrentWindow.GeneralWindow(torrent_hash=torrent_hash),  #  uw.Filler(SelectableText("This is the general window")),
+                     "Trackers": uw.Filler(SelectableText("This is the trackers window")),
+                     "Peers": uw.Filler(SelectableText("This is the peers window")),
+                     "Content": uw.Filler(SelectableText("This is the content window")),
+                     }
+
+        self.tabs_column_w = TorrentWindow.TorrentTabs(list(self.tabs.keys()))
+        self.content_column = self.tabs['General']
+
+        columns_list = [(uw.WEIGHT, 10, self.tabs_column_w),
+                        (uw.WEIGHT, 90, self.content_column)]
+
+        super(TorrentWindow, self).__init__(columns_list, dividechars=3, focus_column=0,
+                                            min_width=15, box_columns=None)
+
+        self.main = main
+        self.torrent = torrent
+        self.torrent_hash = torrent_hash
+
+        torrent_window_tab_change.connect(receiver=self.switch_tab_window)
+
+        self.main.daemon.add_sync_torrent_hash(torrent_hash=torrent_hash)
+
+    def switch_tab_window(self, sender, tab=None):
+        if tab is None:
+            return
+        self.content_column = self.tabs[tab]
+        self.contents[1] = (self.content_column,
+                            self.options(width_type=uw.WEIGHT, width_amount=90, box_widget=False)
+                            )
+
+    def keypress(self, size, key):
+        log_keypress(self, key)
+        key = super(TorrentWindow, self).keypress(size, key)
+        if key in ['esc', 'left']:
+            self.return_to_torrent_list()
+            return None
+        return key
+
+    def return_to_torrent_list(self):
+        self.main.daemon.remove_sync_torrent_hash(torrent_hash=self.torrent_hash)
+        blinker.signal(self.torrent_hash).disconnect(self.tabs["General"].update)
+        self.main.app_window.body = self.main.app_window.torrent_list_w
+
+    class TorrentTabs(uw.ListBox):
+        def __init__(self, tabs: list):
+            tabs_list_for_walker = [uw.Text("")]
+            for i, tab_name in enumerate(tabs):
+                tabs_list_for_walker.extend(
+                    [
+                        uw.AttrMap(SelectableText(tab_name,
+                                                  align=uw.CENTER,
+                                                  wrap=uw.CLIP),
+                                   '',
+                                   focus_map='selected'),
+                        uw.Text("")
+                    ]
+                )
+            self.list_walker = uw.SimpleFocusListWalker(tabs_list_for_walker)
+            super(TorrentWindow.TorrentTabs, self).__init__(self.list_walker)
+
+            self.__selected_tab_pos = None
+
+        def keypress(self, size, key):
+            log_keypress(self, key)
+            key = super(TorrentWindow.TorrentTabs, self).keypress(size, key)
+
+            # Add 'selected' AttrMap to newly focused tab
+            #  and remove 'selected'' AttrMap from previously focused tab
+            if self.focus_position != self.__selected_tab_pos:
+                if self.__selected_tab_pos is not None:
+                    tab_text = self.list_walker[self.__selected_tab_pos].base_widget.get_text()[0]
+                    new_tab = uw.AttrMap(
+                        SelectableText(tab_text, align=uw.CENTER),
+                        '',
+                        focus_map='selected')
+                    self.list_walker[self.__selected_tab_pos] = new_tab
+                self.__selected_tab_pos = self.focus_position
+                tab_text = self.list_walker[self.__selected_tab_pos].base_widget.get_text()[0]
+                new_tab = uw.AttrMap(
+                    SelectableText(tab_text, align=uw.CENTER),
+                    'selected',
+                    focus_map='selected')
+                self.list_walker[self.__selected_tab_pos] = new_tab
+
+                torrent_window_tab_change.send("torrent window tabs", tab=tab_text)
+            return key
+
+    class GeneralWindow(uw.Pile):
+        def __init__(self, torrent_hash: str):
+            self.updatable_widgets = []
+            self.create_widgets()
+
+            # TODO: layout needs updating....obviously
+            self.updatable_widgets = [uw.Filler(w) for w in self.updatable_widgets]
+            super(TorrentWindow.GeneralWindow, self).__init__(self.updatable_widgets)
+
+            blinker.signal(torrent_hash).connect(receiver=self.update)
+
+        def create_widgets(self):
+            val_cont = TorrentWindow.GeneralWindow.TorrentGeneralValueContainer
+
+            def format_time_active(time_elapsed=0): return format_time_delta(seconds=time_elapsed)
+            def format_reannounce(reannounce=0): return format_time_delta(seconds=reannounce)
+            def format_eta(eta=8640000): return format_time_delta(seconds=eta, infinity=True)
+            def format_time_delta(seconds=0, infinity=False):
+                if infinity is True: return "%s" % (pretty_time_delta(seconds=seconds) if seconds < 8640000 else '\u221E')
+                return "%s" % pretty_time_delta(seconds=seconds)
+
+            def format_uploaded(total_uploaded=0, total_uploaded_session=0): return format_up_or_down(total=total_uploaded, total_session=total_uploaded_session)
+            def format_downloaded(total_downloaded=0, total_downloaded_session=0): return format_up_or_down(total=total_downloaded, total_session=total_downloaded_session)
+            def format_up_or_down(total=0, total_session=0):
+                return "%s (%s this session)" % (format_size(size_bytes=total),
+                                                 format_size(size_bytes=total_session))
+            def format_upload_speed(up_speed=0, up_speed_avg=0): return format_up_or_down_speed(speed=up_speed, speed_avg=up_speed_avg)
+            def format_download_speed(dl_speed=0, dl_speed_avg=0): return format_up_or_down_speed(speed=dl_speed, speed_avg=dl_speed_avg)
+            def format_up_or_down_speed(speed=0, speed_avg=0):
+                return "%s/s (%s/s avg)" % (format_size(size_bytes=speed),
+                                            format_size(size_bytes=speed_avg))
+            def format_up_limit(up_limit=0): return format_up_or_down_limit(limit=up_limit)
+            def format_down_limit(dl_limit=0): return format_up_or_down_limit(limit=dl_limit)
+            def format_up_or_down_limit(limit=0):
+                if limit == -1: return '\u221E'
+                return "%s/s" % format_size(size_bytes=limit)
+            def format_wasted(total_wasted=0): return format_size(size_bytes=total_wasted)
+            def format_total_size(total_size=0): return format_size(size_bytes=total_size)
+            def format_size(size_bytes=0):
+                return natural_file_size(size_bytes, binary=True)
+
+            def format_share_ratio(share_ratio=0):
+                return "%.2f" % share_ratio
+
+            def format_connections(nb_connections=0, nb_connections_limit=0):
+                return "%d (%d max)" % (nb_connections, nb_connections_limit)
+
+            def format_seeds(seeds=0, seeds_total=0): return format_seeds_or_peers(num=seeds, total=seeds_total)
+            def format_peers(peers=0, peers_total=0): return format_seeds_or_peers(num=peers, total=peers_total)
+            def format_seeds_or_peers(num=0, total=0):
+                return "%d (%d total)" % (num, total)
+
+            def format_last_seen(last_seen=-1): return format_date_time(seconds=last_seen)
+            def format_added_on(addition_date=-1): return format_date_time(seconds=addition_date)
+            def format_completed_on(completion_date=-1): return format_date_time(seconds=completion_date)
+            def format_creation_date(creation_date=-1): return format_date_time(seconds=creation_date)
+            def format_date_time(seconds):
+                if seconds == -1:
+                    return ""
+                dt = datetime.fromtimestamp(seconds)
+                return dt.strftime("%m/%d/%y %H:%M:%S")
+
+            def format_hash(hash=""): return format_string(string=hash)
+            def format_save_path(save_path=""): return format_string(string=save_path)
+            def format_comment(comment=""): return format_string(string=comment)
+            def format_created_by(created_by=""): return format_string(string=created_by)
+            def format_string(string): return string
+
+            def format_pieces(pieces_num=0, piece_size=0, pieces_have=0):
+                return "%d x %s (have %d)" % (pieces_have, format_size(size_bytes=piece_size), pieces_have)
+
+            # TRANSFER
+            self.time_active_w = val_cont(data_elements=['time_elapsed'],
+                                     caption="Time Active",
+                                     format_func=format_time_active)
+            self.updatable_widgets.append(self.time_active_w)
+
+            self.downloaded_w = val_cont(data_elements=['total_downloaded', 'total_downloaded_session'],
+                                    caption="Downloaded",
+                                    format_func=format_downloaded)
+            self.updatable_widgets.append(self.downloaded_w)
+
+            self.download_speed_w = val_cont(data_elements=['dl_speed', 'dl_speed_avg'],
+                                        caption="Download Speed",
+                                        format_func=format_download_speed)
+            self.updatable_widgets.append(self.download_speed_w)
+
+            self.download_limit_w = val_cont(data_elements=['dl_limit'],
+                                        caption="Download Limit",
+                                        format_func=format_down_limit)
+            self.updatable_widgets.append(self.download_limit_w)
+
+            self.share_ratio_w = val_cont(data_elements=['share_ratio'],
+                                     caption="Share Ratio",
+                                     format_func=format_share_ratio)
+            self.updatable_widgets.append(self.share_ratio_w)
+
+            self.eta_w = val_cont(data_elements=['eta'],
+                             caption='ETA',
+                             format_func=format_eta)
+            self.updatable_widgets.append(self.eta_w)
+
+            self.uploaded_w = val_cont(data_elements=['total_uploaded', 'total_uploaded_session'],
+                                  caption="Uploaded",
+                                  format_func=format_uploaded)
+            self.updatable_widgets.append(self.uploaded_w)
+
+            self.upload_speed_w = val_cont(data_elements=['up_speed', 'up_speed_avg'],
+                                      caption="Upload Speed",
+                                      format_func=format_upload_speed)
+            self.updatable_widgets.append(self.upload_speed_w)
+
+            self.upload_limit_w = val_cont(data_elements=['up_limit'],
+                                      caption="Upload Limit",
+                                      format_func=format_up_limit)
+            self.updatable_widgets.append(self.upload_limit_w)
+
+            self.reannounce_w = val_cont(data_elements=['reannounce'],
+                                    caption="Reannounce In",
+                                    format_func=format_reannounce)
+            self.updatable_widgets.append(self.reannounce_w)
+
+            self.connections_w = val_cont(data_elements=['nb_connections', 'nb_connections_limit'],
+                                     caption="Connections",
+                                     format_func=format_connections)
+            self.updatable_widgets.append(self.connections_w)
+
+            self.seeds_w = val_cont(data_elements=['seeds', 'seeds_total'],
+                               caption="Seeds",
+                               format_func=format_seeds)
+            self.updatable_widgets.append(self.seeds_w)
+
+            self.peers_w = val_cont(data_elements=['peers', 'peers_total'],
+                               caption="Peers",
+                               format_func=format_peers)
+            self.updatable_widgets.append(self.peers_w)
+
+            self.wasted_w = val_cont(data_elements=['total_wasted'],
+                                caption="Wasted",
+                                format_func=format_wasted)
+            self.updatable_widgets.append(self.wasted_w)
+
+            self.last_seen_w = val_cont(data_elements=['last_seen'],
+                                   caption='Last Seen Complete',
+                                   format_func=format_last_seen)
+            self.updatable_widgets.append(self.last_seen_w)
+
+            # INFORMATION
+            self.total_size_w = val_cont(data_elements=['total_size'],
+                                    caption="Total Size",
+                                    format_func=format_total_size)
+            self.updatable_widgets.append(self.total_size_w)
+
+            self.added_on_w = val_cont(data_elements=['addition_date'],
+                                       caption="Added On",
+                                       format_func=format_added_on)
+            self.updatable_widgets.append(self.added_on_w)
+
+            self.torrent_hash_w = val_cont(data_elements=['hash'],
+                                           caption="Torrent Hash",
+                                           source="torrent",
+                                           format_func=format_hash)
+            self.updatable_widgets.append(self.torrent_hash_w)
+
+            self.save_path_w = val_cont(data_elements=['save_path'],
+                                        caption="Save Path",
+                                        format_func=format_save_path)
+
+            self.comment_w = val_cont(data_elements=['comment'],
+                                      caption="Comment",
+                                      format_func=format_comment)
+            self.updatable_widgets.append(self.comment_w)
+
+            self.pieces_w = val_cont(data_elements=['pieces_num', 'piece_size', 'pieces_have'],
+                                     caption="Pieces",
+                                     format_func=format_pieces)
+            self.updatable_widgets.append(self.pieces_w)
+
+            self.completed_on_w = val_cont(data_elements=['completion_date'],
+                                           caption='Completed On',
+                                           format_func=format_completed_on)
+            self.updatable_widgets.append(self.completed_on_w)
+
+            self.created_by_w = val_cont(data_elements=['created_by'],
+                                         caption="Created By",
+                                         format_func=format_created_by)
+            self.updatable_widgets.append(self.created_by_w)
+
+            self.created_on_w = val_cont(data_elements=['creation_date'],
+                                         caption="Created On",
+                                         format_func=format_creation_date)
+            self.updatable_widgets.append(self.created_on_w)
+
+        def update(self, sender, torrent: dict, properties: dict):
+            start_time = time()
+            for w in self.updatable_widgets:
+                w.base_widget.update(torrent=torrent, properties=properties)
+            if IS_TIMING_LOGGING_ENABLED:
+                logger.info("Refreshing Torrent Window General (%.2f)" % (time() - start_time))
+
+        class TorrentGeneralValueContainer(uw.Text):
+            def __init__(self, data_elements: list, caption: str, format_func, source: str = "properties"):
+                super(TorrentWindow.GeneralWindow.TorrentGeneralValueContainer, self).__init__("", wrap=uw.CLIP)
+
+                self.data_elements = data_elements
+                self.source = source  # torrent or properties
+                self.caption = caption
+                self.format_func = format_func
+                # initialize widget with default values
+                #  update should be called immediately after instantiation
+                self.raw_value = dict()
+
+            def __len__(self):
+                return len(self.text)
+
+            @property
+            def raw_value(self):
+                return self._raw_value
+
+            @raw_value.setter
+            def raw_value(self, values: dict):
+                self._raw_value = values
+                self.set_text("%s: %s" % (self.caption, self.format_func(**values)))
+
+            def update(self, torrent: dict, properties: dict):
+                values = dict()
+                source = torrent if self.source == "torrent" else properties
+                for e in self.data_elements:
+                    # TODO: add if back in....want to crash for now to find bugs
+                    #if e in source:
+                    values[e] = source[e]
+                if self.raw_value != values:
+                    logger.info("Updating %s" % self.__class__.__name__)
+                    self.raw_value = values
 
 
 class TorrentOptions(uw.ListBox):
@@ -1241,7 +1592,7 @@ class TorrentAdd(uw.ListBox):
         categories = {x: x for x in list(self.main.server.categories.keys())}
         categories["<no category>"] = "<no category>"
 
-        prefs = self.main.bg_poller.get_preferences()
+        prefs = self.main.daemon.get_server_preferences()
 
         self.torrent_file_w = uw.Edit(caption="Torrent file path: ")
         self.torrent_url_w = uw.Edit(caption="Torrent url: ")

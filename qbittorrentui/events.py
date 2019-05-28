@@ -1,11 +1,10 @@
 import blinker
 
+IS_TIMING_LOGGING_ENABLED = False
 
-sync_maindata_ready = blinker.Signal()
-"""signal from poller to send maindata to receivers"""
 
-server_details_ready = blinker.Signal()
-"""signal that new details were retrieved from the torrent server"""
+update_ui_from_daemon = blinker.Signal()
+"""signal from a background daemon for the ui"""
 
 server_details_changed = blinker.Signal()
 """signal that new server details are available"""
@@ -25,5 +24,8 @@ update_torrent_list_now = blinker.Signal()
 run_server_command = blinker.Signal()
 """signal for background poller to send commands to server"""
 
-request_to_initialize_torrent_list = blinker.Signal()
+initialize_torrent_list = blinker.Signal()
 """once torrent client is connected, signal to initialize the torrent list"""
+
+torrent_window_tab_change = blinker.Signal()
+"""signal that the tab changed in a torrent window"""
