@@ -5,6 +5,7 @@ from attrdict import AttrDict
 import threading
 from threading import RLock
 from time import time
+from copy import deepcopy
 
 from qbittorrentui.events import IS_TIMING_LOGGING_ENABLED
 
@@ -22,11 +23,9 @@ logger = logging.getLogger(__name__)
 LOOP_INTERVAL = 2
 
 
-class BackgroundManager(threading.Thread):
-    _client: Connector
-
-    def __init__(self, torrent_client, daemon_signal_fd):
-        super(BackgroundManager, self).__init__()
+class DaemonManager(threading.Thread):
+    def __init__(self, torrent_client, daemon_signal_fd: int):
+        super(DaemonManager, self).__init__()
 
         self._stop_request = threading.Event()
         self._daemon_signal_fd = daemon_signal_fd  # use os.write to send signals back to UI
@@ -53,7 +52,6 @@ class BackgroundManager(threading.Thread):
 
         # Commands
         self.commands_d = Commands(torrent_client)
-        self.create_command = self.commands_d.create_command
         self.run_command = self.commands_d.run_command
 
         ########################################
@@ -108,12 +106,12 @@ class BackgroundManager(threading.Thread):
             worker.stop('shutdown')
             worker.join(timeout=1)
 
+        self.signal_ui("daemon manager", "close_pipe")
         os.close(self._daemon_signal_fd)
 
 
 class Daemon(threading.Thread):
     client: Connector
-    bg_man: BackgroundManager
 
     def __init__(self, torrent_client):
         """
@@ -211,7 +209,8 @@ class SyncTorrent(Daemon):
         self._torrent_store = dict()
         """Structure:
            { hash: { "torrent": {},
-                     "properties": {}
+                     "properties": {},
+                     "trackers": [],
                    }
            }
         """
@@ -219,18 +218,24 @@ class SyncTorrent(Daemon):
 
     def _one_loop(self):
         while not self._torrents_to_add_q.empty():
-            self._torrent_hashes.append(self._torrents_to_add_q.get())
+            new_torrent_hash = self._torrents_to_add_q.get()
+            if new_torrent_hash not in self._torrent_hashes:
+                self._torrent_hashes.append(new_torrent_hash)
         while not self._torrents_to_remove_q.empty():
-            self._torrent_hashes.remove(self._torrents_to_remove_q.get())
+            torrent_hash = self._torrents_to_remove_q.get()
+            if torrent_hash in self._torrent_hashes:
+                self._torrent_hashes.remove(torrent_hash)
 
         torrents_info = self.client.torrents_list(torrent_ids=[torrent_hash for torrent_hash in self._torrent_hashes])
         torrents = {t['hash']: t for t in torrents_info}
 
         for torrent_hash in self._torrent_hashes:
             properties = self.client.torrent_properties(torrent_id=torrent_hash)
+            trackers = self.client.torrent_trackers(torrent_id=torrent_hash)
             self.put_torrent_store(torrent_hash=torrent_hash,
                                    torrent=torrents[torrent_hash],
-                                   properties=properties)
+                                   properties=properties,
+                                   trackers=trackers)
 
             self.signal_ui("sync_torrent_data_ready:%s" % torrent_hash)
 
@@ -241,7 +246,7 @@ class SyncTorrent(Daemon):
     def remove_sync_torrent_hash(self, torrent_hash: str):
         self._torrents_to_remove_q.put(torrent_hash)
 
-    def put_torrent_store(self, torrent_hash: str, torrent: dict = None, properties: dict = None):
+    def put_torrent_store(self, torrent_hash: str, torrent=None, properties=None, trackers=None):
         self._torrent_store_lock.acquire()
         if torrent_hash not in self._torrent_store:
             self._torrent_store[torrent_hash] = dict()
@@ -249,6 +254,8 @@ class SyncTorrent(Daemon):
             self._torrent_store[torrent_hash]["torrent"] = torrent
         if properties:
             self._torrent_store[torrent_hash]["properties"] = properties
+        if trackers:
+            self._torrent_store[torrent_hash]["trackers"] = trackers
         self._torrent_store_lock.release()
 
     def get_torrent_store(self, torrent_hash: str):
@@ -294,7 +301,7 @@ class ServerDetails(Daemon):
 
     def get_server_preferences(self):
         self._server_preferences_lock.acquire()
-        prefs = self._server_preferences
+        prefs = deepcopy(self._server_preferences)
         self._server_preferences_lock.release()
         return prefs
 
@@ -310,7 +317,7 @@ class ServerDetails(Daemon):
 
     def get_server_details(self, detail=None):
         self._server_details_lock.acquire()
-        details = self._server_details
+        details = deepcopy(self._server_details)
         self._server_details_lock.release()
         if detail is None:
             return details
@@ -352,10 +359,6 @@ class Commands(Daemon):
         if ran_commands:
             update_torrent_list_now.send('commands daemon')
 
-    @staticmethod
-    def create_command(func=None, func_args: dict = None):
-        return dict(func=func, func_args=func_args)
-
-    def run_command(self, sender, command=""):
-        self._command_q.put(command)
+    def run_command(self, sender, command_func: str, command_args: dict):
+        self._command_q.put(dict(func=command_func, func_args=command_args))
         self.set_wake_up(sender)

@@ -3,13 +3,13 @@ import logging
 import blinker
 from attrdict import AttrDict
 from time import time, sleep
-
+from os import environ
 
 from qbittorrentui.connector import Connector
 from qbittorrentui.connector import ConnectorError
 from qbittorrentui.windows import AppWindow
 from qbittorrentui.windows import ConnectBox
-from qbittorrentui.daemon import BackgroundManager
+from qbittorrentui.daemon import DaemonManager
 from qbittorrentui.events import initialize_torrent_list
 from qbittorrentui.events import server_details_changed
 from qbittorrentui.events import server_state_changed
@@ -26,7 +26,7 @@ logger = logging.getLogger(__name__)
 
 
 class TorrentServer:
-    daemon: BackgroundManager
+    daemon: DaemonManager
 
     def __init__(self, daemon):
         self.daemon = daemon
@@ -34,6 +34,47 @@ class TorrentServer:
         self.torrents = AttrDict()
         self.categories = AttrDict()
         self.server_details = AttrDict()
+        self.partial_daemon_signal = ""
+
+    def daemon_signal(self, signal):
+        signal_str = signal.decode()
+        # it's technically possible for the daemon to send multiple signals before
+        # the urwid event loop reads from the buffer. (this is most obvious if you set a
+        # breakpoint pausing the urwid loop.) therefore, signals can all be read together.
+        # this looping will allow each signal to still be processed as intended.
+        # additionally, if the buffer grows too large, the urwid documentation suggests
+        # only some of the buffer will be read in. so, if the signal string doesn't end
+        # in the daemon signal terminator, save off the end of the signal for the next loop.
+        if signal_str:
+            signal_list = signal_str.split(self.daemon.signal_terminator)
+            if signal_str.endswith(self.daemon.signal_terminator):
+                # if the signal list terminates as expected, prepend any partial signal
+                # to the first signal and process the signals
+                signal_list[0] = "%s%s" % (self.partial_daemon_signal, signal_list[0])
+                self.partial_daemon_signal = ""
+                # remove the last element since it'll just be an empty string
+                signal_list.pop(-1)
+            else:
+                # if the last signal doesnt end with the terminator, remove it from the
+                # signal list to be processed and concatenate to any previous partial signal
+                # saving the whole thing as the new partial signal.
+                # if the whole new signal string was a new partial, then nothing will be
+                # processed for this signal event.
+                self.partial_daemon_signal = "%s%s" % (self.partial_daemon_signal, signal_list.pop(-1))
+            for one_signal in signal_list:
+                if one_signal == "sync_maindata_ready":
+                    self.update_maindata()
+                elif one_signal == "server_details_ready":
+                    self.update_details()
+                elif one_signal.startswith("sync_torrent_data_ready"):
+                    torrent_hash = one_signal[one_signal.find(":") + 1:]
+                    self.update_sync_torrents(torrent_hash=torrent_hash)
+                elif one_signal == "close_pipe":
+                    # tell urwid loop to close the read end of the pipe...daemon will close write end
+                    return False
+                else:
+                    logger.info("Received unknown signal from daemon: %s" % one_signal, exc_info=True)
+                return True
 
     def update_details(self):
         self.server_details.update(self.daemon.get_server_details())
@@ -43,8 +84,6 @@ class TorrentServer:
         """
         Retrieve maindata from bg daemon and update local server state
 
-        :param a:
-        :param kw:
         :return:
         """
         server_details_updated = False
@@ -97,8 +136,11 @@ class TorrentServer:
         store = self.daemon.get_torrent_store(torrent_hash=torrent_hash)
         torrent = store.get('torrent', {})
         properties = store.get('properties', {})
-        sync_torrent_data_ready = blinker.signal(torrent_hash)
-        sync_torrent_data_ready.send('sync_torrent_update', torrent=torrent, properties=properties)
+        trackers = store.get('trackers', {})
+        blinker.signal(torrent_hash).send('sync_torrent_update',
+                                          torrent=torrent,
+                                          properties=properties,
+                                          trackers=trackers)
 
 
 HOST = 'localhost:8080'
@@ -110,85 +152,44 @@ IS_TIMING_LOGGING_ENABLED = True
 class Main(object):
     server: TorrentServer
     torrent_client: Connector
-    daemon: BackgroundManager
+    daemon: DaemonManager
     loop: uw.MainLoop
 
     def __init__(self):
         super(Main, self).__init__()
-        self.torrent_client = None
-        self.ui = None
-        self.loop = None
         self.connect_dialog_w = None
-        self.torrent_list_w = None
-        self.torrent_window = None
-        self.connect_window = None
-        self.torrent_options_window = None
         self.first_window = None
-        self.daemon = None
-        self.partial_daemon_signal = ""
-        self.server = None
 
-    def daemon_signal(self, signal):
-        signal_str = signal.decode()
-        # it's technically possible for the daemon to send multiple signals before
-        # the urwid event loop reads from the buffer. (this is most obvious if you set a
-        # breakpoint pausing the urwid loop.) therefore, signals can all be read together.
-        # this looping will allow each signal to still be processed as intended.
-        # additionally, if the buffer grows too large, the urwid documentation suggests
-        # only some of the buffer will be read in. so, if the signal string doesn't end
-        # in the daemon signal terminator, save off the end of the signal for the next loop.
-        if signal_str:
-            signal_list = signal_str.split(self.daemon.signal_terminator)
-            if signal_str.endswith(self.daemon.signal_terminator):
-                # if the signal list terminates as expected, prepend any partial signal
-                # to the first signal and process the signals
-                signal_list[0] = "%s%s" % (self.partial_daemon_signal, signal_list[0])
-                self.partial_daemon_signal = ""
-                # remove the last element since it'll just be an empty string
-                signal_list.pop(-1)
-            else:
-                # if the last signal doesnt end with the terminator, remove it from the
-                # signal list to be processed and concatenate to any previous partial signal
-                # saving the whole thing as the new partial signal.
-                # if the whole new signal string was a new partial, then nothing will be
-                # processed for this signal event.
-                self.partial_daemon_signal = "%s%s" % (self.partial_daemon_signal, signal_list.pop(-1))
-            for one_signal in signal_list:
-                if one_signal == "sync_maindata_ready":
-                    self.server.update_maindata()
-                elif one_signal == "server_details_ready":
-                    self.server.update_details()
-                elif one_signal.startswith("sync_torrent_data_ready"):
-                    torrent_hash = one_signal[one_signal.find(":")+1:]
-                    self.server.update_sync_torrents(torrent_hash=torrent_hash)
-                else:
-                    logger.info("Received unknown signal from daemon: %s" % one_signal, exc_info=True)
-
-    def exit(self):
-        self.cleanup()
-        raise uw.ExitMainLoop()
-
-    def cleanup(self):
-        self.daemon.stop()
-        self.daemon.join(2)
-
-    def _init(self):
-        self.torrent_client = Connector(self, host=HOST, username=USERNAME, password=PASSWORD)
-
-    def _setup_screen(self):
-        logger.info("Creating screen")
         self.ui = uw.raw_display.Screen()
-        self.ui.set_terminal_properties(colors=256)
+        self.loop = uw.MainLoop(widget=None,
+                                unhandled_input=self.unhandled_urwid_loop_input)
+        self.torrent_client = Connector(host=HOST,
+                                        username=USERNAME,
+                                        password=PASSWORD)
+        # TODO: revamp data sharing between daemon and torrent server such that
+        #       torrent server isn't dependent on daemon. This will likely require
+        #       a single queue between the two. May be too much trouble though...
+        self.daemon = DaemonManager(torrent_client=self.torrent_client,
+                                    daemon_signal_fd=self.loop.watch_pipe(callback=self.daemon_signal))
+        self.server = TorrentServer(daemon=self.daemon)
 
-    def _setup_splash(self):
-        logger.info("Creating splash window")
-        self.splash_screen = uw.Overlay(
-            uw.BigText("qBittorrenTUI", uw.Thin6x6Font()),
-            uw.SolidFill(),
-            'center', None, 'middle', None)
+    def daemon_signal(self, *a, **kw):
+        return self.server.daemon_signal(*a, **kw)
 
-    def _create_urwid_loop(self):
-        logger.info("Creating urwid loop")
+    #########################################
+    # Start Application
+    #########################################
+    def start(self):
+        self._setup_screen()
+        self._setup_splash()
+        self._setup_urwid_loop()
+        self._start_tui()
+
+    #########################################
+    # start() calls the preceding methods in the order they are listed
+    #########################################
+    def _setup_screen(self):
+        logger.info("Setting up screen")
         palette = [
             ('dark blue on default', 'dark blue', ''),
             ('dark cyan on default', 'dark cyan', ''),
@@ -214,19 +215,23 @@ class Main(object):
             ('line', 'black', 'light gray', 'standout'),
             ('reversed', 'standout', ''),
         ]
+        self.ui.set_terminal_properties(colors=256)
+        self.ui.register_palette(palette=palette)
 
-        def unhandled_input(key):
-            if key in ('q', 'Q'):
-                self.exit()
+    def _setup_splash(self):
+        logger.info("Creating splash window")
+        self.splash_screen = uw.Overlay(
+            uw.BigText("qBittorrenTUI", uw.Thin6x6Font()),
+            uw.SolidFill(),
+            'center', None, 'middle', None)
 
-        self.loop = uw.MainLoop(widget=self.splash_screen,
-                                screen=self.ui,
-                                handle_mouse=False,
-                                unhandled_input=unhandled_input,
-                                palette=palette,
-                                event_loop=None,
-                                pop_ups=True,
-                                )
+    def _setup_urwid_loop(self):
+        logger.info("Setting up urwid loop")
+
+        self.loop.widget = self.splash_screen
+        self.loop.screen = self.ui
+        self.loop.handle_mouse = False
+        self.loop.pop_ups = True
 
     def _start_tui(self):
         logger.info("Starting urwid loop")
@@ -234,21 +239,26 @@ class Main(object):
         self.loop.run()
 
     def _finish_setup(self, loop, _):
+        """
+        Once the TUI shows the splash screen, setup will continue here
+
+        :param loop: urwid loop
+        :param _user_data from urwid loop
+        """
         start_time = time()
-        self._start_daemon()
         self._setup_windows()
-        # TODO: add back
-        # show splash screen for at least one second
-        # if 1 - (time() - start_time) > 0:
-        #    sleep(1 - (time() - start_time))
-        loop.set_alarm_in(.001, callback=self._show_application)
+        self._start_daemon()
+        sleep_time_to_show_splash = 1 - (time() - start_time)
+        if environ.get('PYTHON_QBITTORRENTUI_DEV_ENV'):
+            sleep_time_to_show_splash = 0
+        # show splash screen for at least one second during startup
+        if  sleep_time_to_show_splash > 0:
+            sleep(1 - (time() - start_time))
+        self._show_application()
 
     def _start_daemon(self):
         logger.info("Starting background daemon")
-        daemon_signal_fd = self.loop.watch_pipe(callback=self.daemon_signal)
-        self.daemon = BackgroundManager(self.torrent_client, daemon_signal_fd=daemon_signal_fd)
         self.daemon.start()
-        self.server = TorrentServer(daemon=self.daemon)
 
     def _setup_windows(self):
         logger.info("Creating application windows")
@@ -270,21 +280,34 @@ class Main(object):
                                            valign=uw.MIDDLE,
                                            height=(uw.RELATIVE, 50))
 
-    def _show_application(self, loop, _):
+    def _show_application(self):
         logger.info("Showing qBittorrenTUI")
-        loop.widget = self.first_window
+        self.loop.widget = self.first_window
 
-    def start(self):
-        self._init()
-        self._setup_screen()
-        self._setup_splash()
-        self._create_urwid_loop()
-        self._start_tui()
+    #########################################
+    # Cleanup and Exit - always exit through here
+    #########################################
+    def unhandled_urwid_loop_input(self, key):
+        if key in ('q', 'Q'):
+            self.exit()
+
+    def exit(self):
+        """
+        Called from urwid loop's unhandled input callback.
+
+        :return:
+        """
+        self.cleanup()
+        raise uw.ExitMainLoop()
+
+    def cleanup(self):
+        self.daemon.stop()
+        self.daemon.join(2)
 
 
 def run():
+    main = Main()
     try:
-        main = Main()
         main.start()
     except Exception:
         # try to print some mildly helpful info about the crash
