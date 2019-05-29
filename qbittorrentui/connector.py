@@ -136,6 +136,11 @@ class Connector:
             return self._qbt_client.torrents_trackers(hash=torrent_id)
 
     @connection_required
+    def sync_torrent_peers(self, torrent_id, rid=0):
+        if self._client_type is ClientType.qbittorrent:
+            return self._qbt_client.sync_torrent_peers(hash=torrent_id, rid=rid)
+
+    @connection_required
     def torrents_list(self, status_filter='all', torrent_ids=None):
         if self._client_type is ClientType.qbittorrent:
             return self._qbt_client.torrents_info(status_filter=status_filter, hashes=torrent_ids)

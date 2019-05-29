@@ -996,10 +996,10 @@ class TorrentWindow(uw.Columns):
     """
     def __init__(self, main, torrent_hash, torrent):
 
-        self.tabs = {"General": TorrentWindow.GeneralWindow(torrent_hash=torrent_hash),  # uw.Filler(SelectableText("This is the general window")),
-                     "Trackers": TorrentWindow.TrackersWindow(torrent_hash=torrent_hash),  # uw.Filler(SelectableText("This is the trackers window")),
-                     "Peers": uw.Filler(SelectableText("This is the peers window")),
-                     "Content": uw.Filler(SelectableText("This is the content window")),
+        self.tabs = {"General": TorrentWindow.GeneralWindow(),
+                     "Trackers": TorrentWindow.TrackersWindow(),
+                     "Peers": TorrentWindow.PeersWindow(),
+                     "Content": TorrentWindow.ContentWindow(),
                      }
 
         self.tabs_column_w = TorrentWindow.TorrentTabs(list(self.tabs.keys()))
@@ -1016,8 +1016,9 @@ class TorrentWindow(uw.Columns):
         self.torrent_hash = torrent_hash
 
         torrent_window_tab_change.connect(receiver=self.switch_tab_window)
-
         self.main.daemon.add_sync_torrent_hash(torrent_hash=torrent_hash)
+        for tab_window in self.tabs.values():
+            blinker.signal(torrent_hash).connect(receiver=tab_window.update)
 
     def switch_tab_window(self, sender, tab=None):
         if tab is None:
@@ -1037,7 +1038,8 @@ class TorrentWindow(uw.Columns):
 
     def return_to_torrent_list(self):
         self.main.daemon.remove_sync_torrent_hash(torrent_hash=self.torrent_hash)
-        blinker.signal(self.torrent_hash).disconnect(self.tabs["General"].update)
+        for tab_window in self.tabs.values():
+            blinker.signal(self.torrent_hash).disconnect(receiver=tab_window.update)
         self.main.app_window.body = self.main.app_window.torrent_list_w
 
     class TorrentTabs(uw.ListBox):
@@ -1085,7 +1087,7 @@ class TorrentWindow(uw.Columns):
             return key
 
     class GeneralWindow(uw.ListBox):
-        def __init__(self, torrent_hash: str):
+        def __init__(self):
             self.widgets_to_update = []
 
             def create_widgets():
@@ -1357,10 +1359,7 @@ class TorrentWindow(uw.Columns):
                     self.created_on_w,
                 ]
             )
-
             super(TorrentWindow.GeneralWindow, self).__init__(walker)
-
-            blinker.signal(torrent_hash).connect(receiver=self.update)
 
         def update(self, sender, **kw):
             start_time = time()
@@ -1374,7 +1373,6 @@ class TorrentWindow(uw.Columns):
         def keypress(self, size, key):
             log_keypress(self, key)
             key = super(TorrentWindow.GeneralWindow, self).keypress(size, key)
-            logger.info("General window focus: %s " % self.focus_position)
             return key
 
         class TorrentWindowGeneralTabValueContainer(uw.Columns):
@@ -1425,12 +1423,9 @@ class TorrentWindow(uw.Columns):
                     self.raw_value = values
 
     class TrackersWindow(uw.ListBox):
-        def __init__(self, torrent_hash: str):
-            self.torrent_hash = torrent_hash
+        def __init__(self):
             self.walker = uw.SimpleFocusListWalker([])
             super(TorrentWindow.TrackersWindow, self).__init__(self.walker)
-
-            blinker.signal(torrent_hash).connect(receiver=self.update)
 
         def update(self, sender, **kw):
             """
@@ -1494,8 +1489,7 @@ class TorrentWindow(uw.Columns):
                         [
                             (
                                 max(map(len, [tracker.url for tracker in trackers])),
-                                uw.Text("%s" % tracker.url, wrap=uw.CLIP)
-                            ),
+                                uw.Text("%s" % tracker.url, wrap=uw.CLIP)),
                             (
                                 max(map(len, [status_map[tracker.status] for tracker in trackers])),
                                 uw.Text("%s" % status, wrap=uw.CLIP)),
@@ -1524,6 +1518,175 @@ class TorrentWindow(uw.Columns):
 
             if IS_TIMING_LOGGING_ENABLED:
                 logger.info("Updating Torrent Window Trackers (%.2f)" % (time() - start_time))
+
+    class PeersWindow(uw.ListBox):
+        def __init__(self):
+            self.walker = uw.SimpleFocusListWalker([])
+            super(TorrentWindow.PeersWindow, self).__init__(self.walker)
+
+        def update(self, sender, **kw):
+            """
+
+            smaple peer entry:
+            '96.51.101.249:57958': {'client': 'μTorrent 3.5.5',
+                                   'connection': 'μTP',
+                                   'country': 'Canada',
+                                   'country_code': 'ca',
+                                   'dl_speed': 73,
+                                   'downloaded': 872530,
+                                   'files': 'Tosh.0.S11E10.720p.WEB.x264-TBS[rarbg]/tosh.0.s11e10.720p.web.x264-tbs.mkv.!qB',
+                                   'flags': 'D X H E P',
+                                   'flags_desc': 'D = interested(local) and '
+                                                 'unchoked(peer)\n'
+                                                 'X = peer from PEX\n'
+                                                 'H = peer from DHT\n'
+                                                 'E = encrypted traffic\n'
+                                                 'P = μTP',
+                                   'ip': '96.51.101.249',
+                                   'port': 57958,
+                                   'progress': 1,
+                                   'relevance': 1,
+                                   'up_speed': 0,
+                                   'uploaded': 0}
+            :param sender:
+            :param kw:
+            :return:
+            """
+            start_time = time()
+            peers = kw.get('sync_torrent_peers', {})
+
+            max_country_len = len('C')
+            max_connection_len = len("Conn")
+            max_flags_len = len("Flags")
+            max_client_len = len("Client")
+            max_ip_len = len("0.0.0.0")
+            for p in peers.values():
+                max_country_len = max(max_country_len, len(p['country_code']))
+                max_flags_len = max(max_flags_len, len(p['flags']))
+                max_connection_len = max(max_connection_len, len(p['connection']))
+                max_client_len = max(max_client_len, len(p['client']))
+                max_ip_len = max(max_ip_len, len(str(p['ip'])))
+
+            title_bar = dict(client="Client",
+                             connection="Conn",
+                             country="Country",
+                             country_code="C",
+                             dl_speed="Down Sp",
+                             downloaded="Downl'd",
+                             files="Files",
+                             flags="Flags",
+                             ip="IP",
+                             port="Port",
+                             progress="Progress",
+                             relevance="Rel",
+                             up_speed="Up Sp",
+                             uploaded="Upld'd ")
+
+            title_bar_w = uw.Columns(
+                [
+                    (
+                        max_country_len,
+                        uw.Text("%s" % title_bar['country_code'], wrap=uw.CLIP)),
+                    (
+                        max_ip_len,
+                        uw.Text("%s" % title_bar['ip'], wrap=uw.CLIP)),
+                    (
+                        5,
+                        uw.Text("%s" % title_bar['port'], wrap=uw.CLIP)),
+                    (
+                        max_connection_len,
+                        uw.Text("%s" % title_bar['connection'], wrap=uw.CLIP)),
+                    (
+                        max_flags_len,
+                        uw.Text("%s" % title_bar['flags'], wrap=uw.CLIP)),
+                    (
+                        max_client_len,
+                        uw.Text("%s" % title_bar['client'], wrap=uw.CLIP)),
+                    (
+                        len("Progress"),
+                        uw.Text("%s" % title_bar["progress"], wrap=uw.CLIP)),
+                    (
+                        8,
+                        uw.Text("%s" % title_bar['dl_speed'], wrap=uw.CLIP)),
+                    (
+                        8,
+                        uw.Text("%s" % title_bar['up_speed'], wrap=uw.CLIP)),
+                    (
+                        len(title_bar['downloaded']),
+                        uw.Text("%s" % title_bar['downloaded'], wrap=uw.CLIP)),
+                    (
+                        len(title_bar['uploaded']),
+                        uw.Text("%s" % title_bar['uploaded'], wrap=uw.CLIP)),
+                    (
+                        len("Relevance"),
+                        uw.Text("%s" % title_bar['relevance'], wrap=uw.CLIP)),
+                    (
+                        uw.Text("%s" % title_bar['files'], wrap=uw.CLIP)
+                    )
+                ],
+                dividechars=1
+            )
+
+            peer_w_list = [title_bar_w]
+            for p in peers.values():
+                peer_w_list.append(
+                    uw.Columns(
+                        [
+                            (
+                                max_country_len,
+                                uw.Text("%s" % p['country_code'].upper(), wrap=uw.CLIP)),
+                            (
+                                max_ip_len,
+                                uw.Text("%s" % p['ip'], wrap=uw.CLIP)),
+                            (
+                                5,
+                                uw.Text("%s" % p['port'], align=uw.RIGHT, wrap=uw.CLIP)),
+                            (
+                                max_connection_len,
+                                uw.Text("%s" % p['connection'], wrap=uw.CLIP)),
+                            (
+                                max_flags_len,
+                                uw.Text("%s" % p['flags'], wrap=uw.CLIP)),
+                            (
+                                max_client_len,
+                                uw.Text("%s" % p['client'], wrap=uw.CLIP)),
+                            (
+                                len("Progress"),
+                                uw.Text("%.2f%s" % (p['progress']*100, "%"), align=uw.RIGHT, wrap=uw.CLIP)),
+                            (
+                                8,
+                                uw.Text("%s/s" % natural_file_size(p['dl_speed'], gnu=True), align=uw.RIGHT, wrap=uw.CLIP)),
+                            (
+                                8,
+                                uw.Text("%s/s" % natural_file_size(p['up_speed'], gnu=True), align=uw.RIGHT, wrap=uw.CLIP)),
+                            (
+                                len(title_bar['downloaded']),
+                                uw.Text("%s" % natural_file_size(p['downloaded'], gnu=True), align=uw.RIGHT, wrap=uw.CLIP)),
+                            (
+                                len(title_bar['uploaded']),
+                                uw.Text("%s" % natural_file_size(p['uploaded'], gnu=True), align=uw.RIGHT, wrap=uw.CLIP)),
+                            (
+                                len("Relevance"),
+                                uw.Text("%.2f%s" % (p['relevance']*100, "%"), wrap=uw.CLIP)),
+                            (
+                                uw.Text("%s" % p['files'], wrap=uw.CLIP)
+                            )
+                        ],
+                        dividechars=1
+                    )
+                )
+
+            self.walker.clear()
+            self.walker.append(uw.Divider())
+            self.walker.extend(peer_w_list)
+
+    class ContentWindow(uw.ListBox):
+        def __init__(self):
+            self.walker = uw.SimpleFocusListWalker([])
+            super(TorrentWindow.ContentWindow, self).__init__(self.walker)
+
+        def update(self, sender, **kw):
+            pass
 
 
 class TorrentOptions(uw.ListBox):

@@ -134,13 +134,15 @@ class TorrentServer:
 
     def update_sync_torrents(self, torrent_hash):
         store = self.daemon.get_torrent_store(torrent_hash=torrent_hash)
-        torrent = store.get('torrent', {})
-        properties = store.get('properties', {})
-        trackers = store.get('trackers', {})
+        torrent = store.torrent
+        properties = store.properties
+        trackers = store.trackers
+        sync_torrent_peers = store.sync_torrent_peers
         blinker.signal(torrent_hash).send('sync_torrent_update',
                                           torrent=torrent,
                                           properties=properties,
-                                          trackers=trackers)
+                                          trackers=trackers,
+                                          sync_torrent_peers=sync_torrent_peers)
 
 
 HOST = 'localhost:8080'

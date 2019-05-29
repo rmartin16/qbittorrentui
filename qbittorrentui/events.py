@@ -1,6 +1,6 @@
 import blinker
 
-IS_TIMING_LOGGING_ENABLED = True
+IS_TIMING_LOGGING_ENABLED = False
 
 
 update_ui_from_daemon = blinker.Signal()
