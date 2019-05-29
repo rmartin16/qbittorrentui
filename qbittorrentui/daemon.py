@@ -212,6 +212,14 @@ class SyncTorrent(Daemon):
         self._torrent_store_lock = RLock()
 
     def _one_loop(self):
+        # remove torrent stores
+        while not self._torrents_to_remove_q.empty():
+            torrent_hash = self._torrents_to_remove_q.get()
+            if torrent_hash in self._torrent_hashes:
+                self._rid.pop(torrent_hash)
+                self._torrent_hashes.remove(torrent_hash)
+                self._delete_torrent_store(torrent_hash=torrent_hash)
+
         # add and initialize new torrents
         while not self._torrents_to_add_q.empty():
             new_torrent_hash = self._torrents_to_add_q.get()
@@ -223,24 +231,17 @@ class SyncTorrent(Daemon):
                                         properties=dict(),
                                         trackers=list(),
                                         sync_torrent_peers=dict(full_update=True))
-        # remove torrent stores
-        while not self._torrents_to_remove_q.empty():
-            torrent_hash = self._torrents_to_remove_q.get()
-            if torrent_hash in self._torrent_hashes:
-                self._rid.pop(torrent_hash)
-                self._torrent_hashes.remove(torrent_hash)
-                self._delete_torrent_store(torrent_hash=torrent_hash)
 
         # retrieve 'torrent' info for all torrents
         torrents_info = self.client.torrents_list(torrent_ids=[torrent_hash for torrent_hash in self._torrent_hashes])
         torrents = {t['hash']: t for t in torrents_info}
 
         # retrieve properties, trackers, and torrent peers info for all trackers
-        logger.info("Torrent hashes: %s" % self._torrent_hashes)
         for torrent_hash in self._torrent_hashes:
             properties = self.client.torrent_properties(torrent_id=torrent_hash)
             trackers = self.client.torrent_trackers(torrent_id=torrent_hash)
-            sync_torrent_peers = self.client.sync_torrent_peers(torrent_id=torrent_hash, rid=self._rid)
+            sync_torrent_peers = self.client.sync_torrent_peers(torrent_id=torrent_hash, rid=self._rid[torrent_hash])
+            content = self.client.torrent_files(torrent_id=torrent_hash)
             self._rid[torrent_hash] = sync_torrent_peers.get('rid', 0)
 
             # put everything in to the store for the torrent
@@ -248,7 +249,8 @@ class SyncTorrent(Daemon):
                                     torrent=torrents[torrent_hash],
                                     properties=properties,
                                     trackers=trackers,
-                                    sync_torrent_peers=sync_torrent_peers)
+                                    sync_torrent_peers=sync_torrent_peers,
+                                    content=content)
 
             # signal UI that torrent data is ready
             self.signal_ui("sync_torrent_data_ready:%s" % torrent_hash)
@@ -266,7 +268,7 @@ class SyncTorrent(Daemon):
         self._torrent_store_lock.release()
         return store
 
-    def _put_torrent_store(self, torrent_hash: str, torrent=None, properties=None, trackers=None, sync_torrent_peers=None):
+    def _put_torrent_store(self, torrent_hash: str, torrent=None, properties=None, trackers=None, sync_torrent_peers=None, content=None):
         self._torrent_store_lock.acquire()
         if torrent_hash not in self._torrent_stores:
             self._torrent_stores[torrent_hash] = SyncTorrent.TorrentStore()
@@ -287,6 +289,8 @@ class SyncTorrent(Daemon):
                         self._torrent_stores[torrent_hash].sync_torrent_peers[peer].update(peer_dict)
                     else:
                         self._torrent_stores[torrent_hash].sync_torrent_peers[peer] = peer_dict
+        if content:
+            self._torrent_stores[torrent_hash].content = content
         self._torrent_store_lock.release()
 
     def _delete_torrent_store(self, torrent_hash: str):
@@ -299,8 +303,9 @@ class SyncTorrent(Daemon):
             super(SyncTorrent.TorrentStore, self).__init__()
             self.torrent = AttrDict()
             self.properties = AttrDict()
-            self.trackers = []
+            self.trackers = list()
             self.sync_torrent_peers = AttrDict()
+            self.content = list()
 
 
 class ServerDetails(Daemon):

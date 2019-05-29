@@ -1560,27 +1560,35 @@ class TorrentWindow(uw.Columns):
             max_flags_len = len("Flags")
             max_client_len = len("Client")
             max_ip_len = len("0.0.0.0")
+            max_port_len = 4
+            max_dl_speed_len = 8
+            max_up_speed_len = max_dl_speed_len
+            max_downloaded_len = 6
+            max_uploaded_len = max_downloaded_len
+            max_relevance_len = 4
+            max_progress_len = 4
             for p in peers.values():
                 max_country_len = max(max_country_len, len(p['country_code']))
                 max_flags_len = max(max_flags_len, len(p['flags']))
                 max_connection_len = max(max_connection_len, len(p['connection']))
                 max_client_len = max(max_client_len, len(p['client']))
                 max_ip_len = max(max_ip_len, len(str(p['ip'])))
+                max_port_len = max(max_port_len, len(str(p['port'])))
 
             title_bar = dict(client="Client",
                              connection="Conn",
                              country="Country",
                              country_code="C",
-                             dl_speed="Down Sp",
-                             downloaded="Downl'd",
+                             dl_speed="Down",
+                             downloaded="Down'd",
                              files="Files",
                              flags="Flags",
                              ip="IP",
                              port="Port",
-                             progress="Progress",
+                             progress="Prog",
                              relevance="Rel",
-                             up_speed="Up Sp",
-                             uploaded="Upld'd ")
+                             up_speed="Up",
+                             uploaded="Up'd")
 
             title_bar_w = uw.Columns(
                 [
@@ -1591,7 +1599,7 @@ class TorrentWindow(uw.Columns):
                         max_ip_len,
                         uw.Text("%s" % title_bar['ip'], wrap=uw.CLIP)),
                     (
-                        5,
+                        max_port_len,
                         uw.Text("%s" % title_bar['port'], wrap=uw.CLIP)),
                     (
                         max_connection_len,
@@ -1603,22 +1611,22 @@ class TorrentWindow(uw.Columns):
                         max_client_len,
                         uw.Text("%s" % title_bar['client'], wrap=uw.CLIP)),
                     (
-                        len("Progress"),
+                        max_progress_len,
                         uw.Text("%s" % title_bar["progress"], wrap=uw.CLIP)),
                     (
-                        8,
+                        max_dl_speed_len,
                         uw.Text("%s" % title_bar['dl_speed'], wrap=uw.CLIP)),
                     (
-                        8,
+                        max_up_speed_len,
                         uw.Text("%s" % title_bar['up_speed'], wrap=uw.CLIP)),
                     (
-                        len(title_bar['downloaded']),
+                        max_downloaded_len,
                         uw.Text("%s" % title_bar['downloaded'], wrap=uw.CLIP)),
                     (
-                        len(title_bar['uploaded']),
+                        max_uploaded_len,
                         uw.Text("%s" % title_bar['uploaded'], wrap=uw.CLIP)),
                     (
-                        len("Relevance"),
+                        max_relevance_len,
                         uw.Text("%s" % title_bar['relevance'], wrap=uw.CLIP)),
                     (
                         uw.Text("%s" % title_bar['files'], wrap=uw.CLIP)
@@ -1637,9 +1645,9 @@ class TorrentWindow(uw.Columns):
                                 uw.Text("%s" % p['country_code'].upper(), wrap=uw.CLIP)),
                             (
                                 max_ip_len,
-                                uw.Text("%s" % p['ip'], wrap=uw.CLIP)),
+                                uw.Text("%s" % p['ip'], wrap=uw.CLIP, align=uw.RIGHT)),
                             (
-                                5,
+                                max_port_len,
                                 uw.Text("%s" % p['port'], align=uw.RIGHT, wrap=uw.CLIP)),
                             (
                                 max_connection_len,
@@ -1651,23 +1659,23 @@ class TorrentWindow(uw.Columns):
                                 max_client_len,
                                 uw.Text("%s" % p['client'], wrap=uw.CLIP)),
                             (
-                                len("Progress"),
-                                uw.Text("%.2f%s" % (p['progress']*100, "%"), align=uw.RIGHT, wrap=uw.CLIP)),
+                                max_progress_len,
+                                uw.Text("%3d%s" % (p['progress']*100, "%"), align=uw.RIGHT, wrap=uw.CLIP)),
                             (
-                                8,
+                                max_dl_speed_len,
                                 uw.Text("%s/s" % natural_file_size(p['dl_speed'], gnu=True), align=uw.RIGHT, wrap=uw.CLIP)),
                             (
-                                8,
+                                max_up_speed_len,
                                 uw.Text("%s/s" % natural_file_size(p['up_speed'], gnu=True), align=uw.RIGHT, wrap=uw.CLIP)),
                             (
-                                len(title_bar['downloaded']),
+                                max_downloaded_len,
                                 uw.Text("%s" % natural_file_size(p['downloaded'], gnu=True), align=uw.RIGHT, wrap=uw.CLIP)),
                             (
-                                len(title_bar['uploaded']),
+                                max_uploaded_len,
                                 uw.Text("%s" % natural_file_size(p['uploaded'], gnu=True), align=uw.RIGHT, wrap=uw.CLIP)),
                             (
-                                len("Relevance"),
-                                uw.Text("%.2f%s" % (p['relevance']*100, "%"), wrap=uw.CLIP)),
+                                max_relevance_len,
+                                uw.Text("%3d%s" % (p['relevance']*100, "%"), wrap=uw.CLIP)),
                             (
                                 uw.Text("%s" % p['files'], wrap=uw.CLIP)
                             )
@@ -1680,13 +1688,82 @@ class TorrentWindow(uw.Columns):
             self.walker.append(uw.Divider())
             self.walker.extend(peer_w_list)
 
-    class ContentWindow(uw.ListBox):
+            if IS_TIMING_LOGGING_ENABLED:
+                logger.info("Updating Torrent Window Peers (%.2f)" % (time() - start_time))
+
+    class ContentWindow(uw.TreeListBox):
         def __init__(self):
-            self.walker = uw.SimpleFocusListWalker([])
+            self.walker = uw.TreeWalker(uw.ParentNode(dict(name="Content __init__", children=list())))
+            self.update("__init__")
             super(TorrentWindow.ContentWindow, self).__init__(self.walker)
 
         def update(self, sender, **kw):
-            pass
+            content = kw.get('content', [])
+
+            c_name_sep = '/'
+
+            def add_node_or_leaf(content_list: list, name: str, content: dict):
+                if c_name_sep in name:
+                    node_name = name[:name.find(c_name_sep)]
+                    children_name = name[name.find(c_name_sep)+1:]
+                    if node_name not in [e['name'] for e in content_list]:
+                        new_node = dict(name=node_name, children=list())
+                        content_list.append(new_node)
+                        index = content_list.index(new_node)
+                    else:
+                        for i, entry in enumerate(content_list):
+                            if entry['name'] == node_name:
+                                index = i
+                                break
+                    add_node_or_leaf(content_list=content_list[index]['children'], name=children_name, content=content)
+                else:
+                    content_list.append(dict(name=name))
+
+            content_tree = dict(name="Content",
+                                children=list(),
+                                )
+            for c in content:
+                c_name = c.get('name', "")
+                if c_name:
+                    add_node_or_leaf(content_list=content_tree['children'], name=c_name, content=c)
+
+            top_node = TorrentWindow.ContentWindow.ParentNode(content_tree)
+            # tree_walker_1 = uw.TreeWalker(top_node)
+            self.offset_rows = 1
+
+            self.walker.set_focus(top_node)
+
+        class File(uw.TreeWidget):
+            """ Display widget for leaf nodes """
+
+            def get_display_text(self):
+                return self.get_node().get_value()['name']
+
+        class Node(uw.TreeNode):
+            """ Data storage object for leaf nodes """
+
+            def load_widget(self):
+                return TorrentWindow.ContentWindow.File(self)
+
+        class ParentNode(uw.ParentNode):
+            """ Data storage object for interior/parent nodes """
+
+            def load_widget(self):
+                return TorrentWindow.ContentWindow.File(self)
+
+            def load_child_keys(self):
+                data = self.get_value()
+                return range(len(data['children']))
+
+            def load_child_node(self, key):
+                """Return either a Node or a ParentNode"""
+                child_data = self.get_value()['children'][key]
+                child_depth = self.get_depth() + 1
+                if 'children' in child_data:
+                    child_class = TorrentWindow.ContentWindow.ParentNode
+                else:
+                    child_class = TorrentWindow.ContentWindow.Node
+                return child_class(child_data, parent=self, key=key, depth=child_depth)
 
 
 class TorrentOptions(uw.ListBox):
