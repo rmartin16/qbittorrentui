@@ -6,6 +6,8 @@ import panwid
 import blinker
 from datetime import datetime
 
+import os
+
 from time import time
 
 from qbittorrentui.events import IS_TIMING_LOGGING_ENABLED
@@ -1693,19 +1695,81 @@ class TorrentWindow(uw.Columns):
 
     class ContentWindow(uw.TreeListBox):
         def __init__(self):
-            self.walker = uw.TreeWalker(uw.ParentNode(dict(name="Content __init__", children=list())))
-            self.update("__init__")
+            self.focused_path = None
+            self.focused_node_class = TorrentWindow.ContentWindow.DirectoryNode
+            self.collapsed_dirs = []
+
+            self.walker = uw.TreeWalker(uw.ParentNode(''))
             super(TorrentWindow.ContentWindow, self).__init__(self.walker)
 
         def update(self, sender, **kw):
-            content = kw.get('content', [])
+            torrent_content = kw.get('content', [])
 
-            c_name_sep = '/'
+            content = TorrentWindow.ContentWindow.Content(content=torrent_content, collapsed_dirs=self.collapsed_dirs)
 
-            def add_node_or_leaf(content_list: list, name: str, content: dict):
-                if c_name_sep in name:
-                    node_name = name[:name.find(c_name_sep)]
-                    children_name = name[name.find(c_name_sep)+1:]
+            try:
+                focused_node = self.walker.get_focus()[1]
+                self.focused_path = focused_node.get_value()
+                self.focused_node_class = type(focused_node)
+            except Exception:
+                pass
+
+            node = self.focused_node_class(content=content,
+                                           path=self.focused_path if self.focused_path is not None else content.root_dir())
+            self.walker.set_focus(node)
+
+        class Content(object):
+            def __init__(self, content, collapsed_dirs: list):
+                super(TorrentWindow.ContentWindow.Content, self).__init__()
+                self._collapsed_dirs = collapsed_dirs
+                self._content_tree = dict(name=self.dir_sep(),
+                                          children=list())
+                for c in content:
+                    c_name = c.get('name', "")
+                    if c_name:
+                        self._add_node_or_leaf(content_list=self._content_tree['children'],
+                                               name=c_name,
+                                               content=c)
+
+            def list_dir(self, path):
+                children = self.children_for_path(path)
+                return [e['name'] for e in children]
+
+            def is_dir(self, path):
+                return len(self.children_for_path(path))>0
+
+            def root_dir(self):
+                return '/'
+
+            def add_collapsed_dir(self, path):
+                if path not in self._collapsed_dirs:
+                    self._collapsed_dirs.append(path)
+
+            def remove_collapsed_dir(self, path):
+                if path in self._collapsed_dirs:
+                    self._collapsed_dirs.remove(path)
+
+            def children_for_path(self, path: str):
+                # TODO: input checking
+                if path == self.dir_sep():
+                    return self._content_tree['children']
+                path_split = path.split(self.dir_sep())
+                path_split[0] = self.dir_sep()
+                new_children = [self._content_tree]
+                for path_piece in path_split:
+                    children = new_children
+                    for child in children:
+                        if child['name'] == path_piece:
+                            new_children = child['children']
+                return new_children
+
+            @staticmethod
+            def dir_sep(): return '/'
+
+            def _add_node_or_leaf(self, content_list: list, name: str, content: dict):
+                if self.dir_sep() in name:
+                    node_name = name[:name.find(self.dir_sep())]
+                    children_name = name[name.find(self.dir_sep()) + 1:]
                     if node_name not in [e['name'] for e in content_list]:
                         new_node = dict(name=node_name, children=list())
                         content_list.append(new_node)
@@ -1715,55 +1779,193 @@ class TorrentWindow(uw.Columns):
                             if entry['name'] == node_name:
                                 index = i
                                 break
-                    add_node_or_leaf(content_list=content_list[index]['children'], name=children_name, content=content)
+                    self._add_node_or_leaf(content_list=content_list[index]['children'], name=children_name,
+                                           content=content)
                 else:
-                    content_list.append(dict(name=name))
+                    content_list.append(dict(name=name, children=list()))
 
-            content_tree = dict(name="Content",
-                                children=list(),
-                                )
-            for c in content:
-                c_name = c.get('name', "")
-                if c_name:
-                    add_node_or_leaf(content_list=content_tree['children'], name=c_name, content=c)
+        class FlagFileWidget(uw.TreeWidget):
+            # apply an attribute to the expand/unexpand icons
+            unexpanded_icon = uw.AttrMap(uw.TreeWidget.unexpanded_icon, 'dirmark')
+            expanded_icon = uw.AttrMap(uw.TreeWidget.expanded_icon, 'dirmark')
 
-            top_node = TorrentWindow.ContentWindow.ParentNode(content_tree)
-            # tree_walker_1 = uw.TreeWalker(top_node)
-            self.offset_rows = 1
+            def __init__(self, node):
+                self.__super.__init__(node)
+                # insert an extra AttrWrap for our own use
+                self._w = uw.AttrWrap(self._w, None)
+                self.flagged = False
+                self.update_w()
 
-            self.walker.set_focus(top_node)
+            def selectable(self):
+                return True
 
-        class File(uw.TreeWidget):
-            """ Display widget for leaf nodes """
+            def keypress(self, size, key):
+                """allow subclasses to intercept keystrokes"""
+                key = self.__super.keypress(size, key)
+                if key:
+                    key = self.unhandled_keys(size, key)
+
+                # track expanding and collapsing dirs
+                if not self.expanded:
+                    self.get_node()._content.add_collapsed_dir(self.get_node().get_value())
+                else:
+                    self.get_node()._content.remove_collapsed_dir(self.get_node().get_value())
+                return key
+
+            def unhandled_keys(self, size, key):
+                """
+                Override this method to intercept keystrokes in subclasses.
+                Default behavior: Toggle flagged on space, ignore other keys.
+                """
+                if key == " ":
+                    self.flagged = not self.flagged
+                    self.update_w()
+                else:
+                    return key
+
+            def update_w(self):
+                """Update the attributes of self.widget based on self.flagged.
+                """
+                if self.flagged:
+                    self._w.attr = 'flagged'
+                    self._w.focus_attr = 'flagged focus'
+                else:
+                    self._w.attr = ''
+                    self._w.focus_attr = 'selected'
+
+        class FileTreeWidget(FlagFileWidget):
+            """Widget for individual files."""
+
+            def __init__(self, node):
+                self.__super.__init__(node)
+                # path = node.get_value()
+                # add_widget(path, self)
 
             def get_display_text(self):
-                return self.get_node().get_value()['name']
+                return self.get_node().get_key()
 
-        class Node(uw.TreeNode):
-            """ Data storage object for leaf nodes """
+        class EmptyWidget(uw.TreeWidget):
+            """A marker for expanded directories with no contents."""
+
+            def get_display_text(self):
+                return ('flag', '(empty directory)')
+
+        class DirectoryWidget(FlagFileWidget):
+            """Widget for a directory."""
+
+            def __init__(self, node):
+                self.__super.__init__(node)
+                # path = node.get_value()
+                # add_widget(path, self)
+                self.expanded = not (self.get_node().get_value() in self.get_node()._content._collapsed_dirs)
+                self.update_expanded_icon()
+
+            def get_display_text(self):
+                node = self.get_node()
+                if node.get_depth() == 0:
+                    return "/"
+                else:
+                    return node.get_key()
+
+        class FileNode(uw.TreeNode):
+            """Metadata storage for individual files"""
+
+            @staticmethod
+            def dir_sep(): return '/'
+
+            def __init__(self, content, path, parent=None):
+                self._content = content
+                depth = path.count(self.dir_sep())
+                # TODO: rewrite
+                key = os.path.basename(path)
+                uw.TreeNode.__init__(self, path, key=key, parent=parent, depth=depth)
+
+            def load_parent(self):
+                # TODO: rewrite
+                parent_name, my_name = os.path.split(self.get_value())
+                parent = TorrentWindow.ContentWindow.DirectoryNode(self._content, parent_name)
+                parent.set_child_node(self.get_key(), self)
+                return parent
 
             def load_widget(self):
-                return TorrentWindow.ContentWindow.File(self)
+                return TorrentWindow.ContentWindow.FileTreeWidget(self)
 
-        class ParentNode(uw.ParentNode):
-            """ Data storage object for interior/parent nodes """
-
+        class EmptyNode(uw.TreeNode):
             def load_widget(self):
-                return TorrentWindow.ContentWindow.File(self)
+                return TorrentWindow.ContentWindow.EmptyWidget(self)
+
+        class DirectoryNode(uw.ParentNode):
+            """Metadata storage for directories"""
+
+            @staticmethod
+            def dir_sep(): return '/'
+
+            def __init__(self, content, path, parent=None):
+                self._content = content
+                self.dir_count = 0
+
+                # TODO: rewrite
+                if path == self.dir_sep():
+                    depth = 0
+                    key = None
+                else:
+                    depth = path.count(self.dir_sep())
+                    # TODO: rewrite
+                    key = os.path.basename(path)
+                uw.ParentNode.__init__(self, path, key=key, parent=parent,depth=depth)
+
+            def load_parent(self):
+                # TODO: rewrite
+                parent_name, my_name = os.path.split(self.get_value())
+                parent = TorrentWindow.ContentWindow.DirectoryNode(self._content, parent_name)
+                parent.set_child_node(self.get_key(), self)
+                return parent
 
             def load_child_keys(self):
-                data = self.get_value()
-                return range(len(data['children']))
+                dirs = []
+                files = []
+                path = self.get_value()
+                # separate dirs and files
+                # TODO: rewrite
+                for a in self._content.list_dir(path):
+                    if self._content.is_dir(os.path.join(path, a)):
+                        dirs.append(a)
+                    else:
+                        files.append(a)
+
+                # sort dirs and files
+                # dirs.sort(key=alphabetize)
+                # files.sort(key=alphabetize)
+                # store where the first file starts
+                self.dir_count = len(dirs)
+                # collect dirs and files together again
+                keys = dirs + files
+                if len(keys) == 0:
+                    depth = self.get_depth() + 1
+                    self._children[None] = TorrentWindow.ContentWindow.EmptyNode(self,
+                                                                                 parent=self,
+                                                                                 key=None,
+                                                                                 depth=depth)
+                    keys = [None]
+                return keys
 
             def load_child_node(self, key):
-                """Return either a Node or a ParentNode"""
-                child_data = self.get_value()['children'][key]
-                child_depth = self.get_depth() + 1
-                if 'children' in child_data:
-                    child_class = TorrentWindow.ContentWindow.ParentNode
+                """Return either a FileNode or DirectoryNode"""
+                index = self.get_child_index(key)
+                if key is None:
+                    return TorrentWindow.ContentWindow.EmptyNode(None)
                 else:
-                    child_class = TorrentWindow.ContentWindow.Node
-                return child_class(child_data, parent=self, key=key, depth=child_depth)
+                    # TODO: rewrite
+                    path = os.path.join(self.get_value(), key)
+                    if index < self.dir_count:
+                        return TorrentWindow.ContentWindow.DirectoryNode(self._content, path, parent=self)
+                    else:
+                        # TODO: rewrite
+                        path = os.path.join(self.get_value(), key)
+                        return TorrentWindow.ContentWindow.FileNode(self._content, path, parent=self)
+
+            def load_widget(self):
+                return TorrentWindow.ContentWindow.DirectoryWidget(self)
 
 
 class TorrentOptions(uw.ListBox):
