@@ -1,7 +1,7 @@
 import blinker
 
 # TODO: find a new home
-IS_TIMING_LOGGING_ENABLED = Trueq
+IS_TIMING_LOGGING_ENABLED = True
 
 
 update_ui_from_daemon = blinker.Signal()
