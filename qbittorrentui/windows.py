@@ -647,7 +647,7 @@ class TorrentListBox(uw.Pile):
                     #  name keeps resetting each time info is udpated
                     torrent_row_w.resize_name_len(0)
                     if torrent_row_w.base_widget.current_sizing != "narrow":
-                        logger.info("Resizing %s to narrow" % torrent_row_w.base_widget.cached_torrent.name)
+                        # logger.info("Resizing %s to narrow" % torrent_row_w.base_widget.cached_torrent.name)
                         # ensure we're using the pb text
                         torrent_row_w.swap_pb_bar_for_pb_text()
                         # insert a blank space
@@ -675,7 +675,7 @@ class TorrentListBox(uw.Pile):
                         if torrent_row_w.base_widget.current_sizing == 'narrow':
                             torrent_row_w.base_widget.torrent_info_columns_w.base_widget.contents.pop(0)
                             torrent_row_w.base_widget.contents.pop(0)
-                        logger.info("Resizing %s to pb text" % torrent_row_w.base_widget.cached_torrent.name)
+                        # logger.info("Resizing %s to pb text" % torrent_row_w.base_widget.cached_torrent.name)
                         torrent_row_w.swap_pb_bar_for_pb_text()
                         torrent_row_w.base_widget.current_sizing = 'pb_text'
 
@@ -685,7 +685,7 @@ class TorrentListBox(uw.Pile):
                         if torrent_row_w.base_widget.current_sizing == 'narrow':
                             torrent_row_w.base_widget.torrent_info_columns_w.base_widget.contents.pop(0)
                             torrent_row_w.base_widget.contents.pop(0)
-                        logger.info("Resizing %s to pb bar" % torrent_row_w.base_widget.cached_torrent.name)
+                        # logger.info("Resizing %s to pb bar" % torrent_row_w.base_widget.cached_torrent.name)
                         torrent_row_w.swap_pb_text_for_pb_bar()
                         torrent_row_w.base_widget.current_sizing = 'pb_bar'
 

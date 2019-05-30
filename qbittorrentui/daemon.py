@@ -208,11 +208,29 @@ class SyncTorrent(Daemon):
         self._torrent_hashes = list()
 
         self._torrent_stores = dict()
-        """Structure: { hash: TorrentStore }"""
         self._torrent_store_lock = RLock()
 
     def _one_loop(self):
-        # remove torrent stores
+        self._update_torrent_hashes_list()
+        for torrent_hash in self._torrent_hashes:
+            self._populate_torrent_store(torrent_hash=torrent_hash)
+            self._send_store(torrent_hash=torrent_hash)
+
+    def add_sync_torrent_hash(self, torrent_hash: str):
+        self._torrents_to_add_q.put(torrent_hash)
+        self.set_wake_up("torrent hash added")
+
+    def remove_sync_torrent_hash(self, torrent_hash: str):
+        self._torrents_to_remove_q.put(torrent_hash)
+
+    def get_torrent_store(self, torrent_hash: str):
+        self._torrent_store_lock.acquire()
+        store = self._torrent_stores.get(torrent_hash, None)
+        self._torrent_store_lock.release()
+        return store
+
+    def _update_torrent_hashes_list(self):
+        # remove stale torrent stores
         while not self._torrents_to_remove_q.empty():
             torrent_hash = self._torrents_to_remove_q.get()
             if torrent_hash in self._torrent_hashes:
@@ -232,41 +250,24 @@ class SyncTorrent(Daemon):
                                         trackers=list(),
                                         sync_torrent_peers=dict(full_update=True))
 
-        # retrieve 'torrent' info for all torrents
-        torrents_info = self.client.torrents_list(torrent_ids=[torrent_hash for torrent_hash in self._torrent_hashes])
-        torrents = {t['hash']: t for t in torrents_info}
-
+    def _populate_torrent_store(self, torrent_hash: str):
         # retrieve properties, trackers, and torrent peers info for all trackers
-        for torrent_hash in self._torrent_hashes:
-            properties = self.client.torrent_properties(torrent_id=torrent_hash)
-            trackers = self.client.torrent_trackers(torrent_id=torrent_hash)
-            sync_torrent_peers = self.client.sync_torrent_peers(torrent_id=torrent_hash, rid=self._rid[torrent_hash])
-            content = self.client.torrent_files(torrent_id=torrent_hash)
-            self._rid[torrent_hash] = sync_torrent_peers.get('rid', 0)
+        torrent = self.client.torrents_list(torrent_ids=torrent_hash)
+        if torrent:
+            torrent = torrent[0]
+        properties = self.client.torrent_properties(torrent_id=torrent_hash)
+        trackers = self.client.torrent_trackers(torrent_id=torrent_hash)
+        sync_torrent_peers = self.client.sync_torrent_peers(torrent_id=torrent_hash, rid=self._rid[torrent_hash])
+        self._rid[torrent_hash] = sync_torrent_peers.get('rid', 0)
+        content = self.client.torrent_files(torrent_id=torrent_hash)
 
-            # put everything in to the store for the torrent
-            self._put_torrent_store(torrent_hash=torrent_hash,
-                                    torrent=torrents[torrent_hash],
-                                    properties=properties,
-                                    trackers=trackers,
-                                    sync_torrent_peers=sync_torrent_peers,
-                                    content=content)
-
-            # signal UI that torrent data is ready
-            self.signal_ui("sync_torrent_data_ready:%s" % torrent_hash)
-
-    def add_sync_torrent_hash(self, torrent_hash: str):
-        self._torrents_to_add_q.put(torrent_hash)
-        self.set_wake_up("torrent hash added")
-
-    def remove_sync_torrent_hash(self, torrent_hash: str):
-        self._torrents_to_remove_q.put(torrent_hash)
-
-    def get_torrent_store(self, torrent_hash: str):
-        self._torrent_store_lock.acquire()
-        store = self._torrent_stores.get(torrent_hash, None)
-        self._torrent_store_lock.release()
-        return store
+        # put everything in to the store for the torrent
+        self._put_torrent_store(torrent_hash=torrent_hash,
+                                torrent=torrent,
+                                properties=properties,
+                                trackers=trackers,
+                                sync_torrent_peers=sync_torrent_peers,
+                                content=content)
 
     def _put_torrent_store(self, torrent_hash: str, torrent=None, properties=None, trackers=None, sync_torrent_peers=None, content=None):
         self._torrent_store_lock.acquire()
@@ -292,6 +293,9 @@ class SyncTorrent(Daemon):
         if content:
             self._torrent_stores[torrent_hash].content = content
         self._torrent_store_lock.release()
+
+    def _send_store(self, torrent_hash: str):
+        self.signal_ui("sync_torrent_data_ready:%s" % torrent_hash)
 
     def _delete_torrent_store(self, torrent_hash: str):
         self._torrent_store_lock.acquire()
@@ -385,7 +389,7 @@ class Commands(Daemon):
         self._command_q = queue.Queue()
 
     def _one_loop(self):
-        logger.info("Command queue length: %s" % self._command_q.qsize())
+        # logger.info("Command queue length: %s" % self._command_q.qsize())
         ran_commands = False
         while not self._command_q.empty():
             ran_commands = True
