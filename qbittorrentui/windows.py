@@ -134,12 +134,20 @@ class ButtonWithoutCursor(uw.Button):
 
 
 class DownloadProgressBar(uw.ProgressBar):
+    def __init__(self, normal, complete, current=0, done=100, satt=None):
+        if done == 0:
+            done = 100
+        super(DownloadProgressBar, self).__init__(normal=normal, complete=complete, current=current, done=done, satt=satt)
+
     def get_text(self):
         return "%s %s" % (natural_file_size(self.current, gnu=True).rjust(7),
                           ("(%s)" % self.get_percentage()).ljust(6))
 
     def get_percentage(self):
-        percent = int(self.current * 100 / self.done)
+        try:
+            percent = int(self.current * 100 / self.done)
+        except ZeroDivisionError:
+            percent = "unk"
         return "%s%s" % (percent, "%")
 
 
@@ -987,7 +995,11 @@ class TorrentListBox(uw.Pile):
                 def update(self, torrent: AttrDict):
                     try:
                         self.current = torrent['completed']
-                        self.done = torrent['size'] if torrent['size'] != 0 else 100
+                        done = torrent['size']
+                        if done == 0:
+                            self.done = 100
+                        else:
+                            self.done = torrent['size']
                     except KeyError:
                         logger.info("Failed to update 'progress bar' torrent info column")
 
