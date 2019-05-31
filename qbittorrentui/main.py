@@ -9,6 +9,7 @@ from qbittorrentui.connector import Connector
 from qbittorrentui.connector import ConnectorError
 from qbittorrentui.windows.application import AppWindow
 from qbittorrentui.windows.application import ConnectDialog
+from qbittorrentui.config import APPLICATION_NAME
 from qbittorrentui.daemon import DaemonManager
 from qbittorrentui.events import initialize_torrent_list
 from qbittorrentui.events import server_details_changed
@@ -28,7 +29,6 @@ logger = logging.getLogger(__name__)
 HOST = 'localhost:8080'
 USERNAME = 'test'
 PASSWORD = 'testtest'
-IS_TIMING_LOGGING_ENABLED = True
 
 
 class TorrentServer:
@@ -230,7 +230,6 @@ class Main(object):
 
     def _setup_urwid_loop(self):
         logger.info("Setting up urwid loop")
-
         self.loop.widget = self.splash_screen
         self.loop.screen = self.ui
         self.loop.handle_mouse = False
@@ -283,7 +282,7 @@ class Main(object):
                                            height=(uw.RELATIVE, 50))
 
     def _show_application(self):
-        logger.info("Showing qBittorrenTUI")
+        logger.info("Showing %s" % APPLICATION_NAME)
         self.loop.widget = self.first_window
 
     #########################################
@@ -330,7 +329,3 @@ def run():
         print()
         program.cleanup()
         raise
-
-
-if __name__ == "__main__":
-    run()
