@@ -49,15 +49,19 @@ class AppTitleBar(uw.Text):
 
     def refresh(self, sender, details: dict = None):
         start_time = time()
+        div_ch = "|"
         if details is None:
             details = {}
         app_name = APPLICATION_NAME
         hostname = getfqdn()
-        self.set_text("%s (%s) %s:%s" % (app_name,
-                                         details.get('server_version', ""),
-                                         hostname,
-                                         details.get('api_conn_port', "")
-                                         )
+        ver = details.get('server_version', "")
+        port = details.get('api_conn_port', "")
+        server_version_str = "%s" % (" %s %s" % (div_ch, ver) if ver != "" else "")
+        hostname_str = "%s" % (" %s %s" % (div_ch, ("%s" % ("%s:%s" % (hostname, port) if port != "" else hostname)) if hostname != "" else ""))
+        self.set_text("%s%s%s" % (app_name,
+                                  server_version_str,
+                                  hostname_str,
+                                  )
                       )
         if IS_TIMING_LOGGING_ENABLED:
             logger.info("Updating title bar (from %s) (%.2fs)" % (sender, time() - start_time))
