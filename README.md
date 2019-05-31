@@ -26,9 +26,9 @@ Torrent Window
 Installation
 ------------
 ```bash
-pip install git+https://github.com/rmartin16/qbittorrentui.git
+$ pip install git+https://github.com/rmartin16/qbittorrentui.git
 
-python -c 'import qbittorrentui'
+$ qbittorrentui
 ```
 
 Configuration
