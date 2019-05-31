@@ -36,7 +36,7 @@ Configuration
 If qBittorrent WebUI is using an untrusted (e.g. self-signed) cert:
 * ```export PYTHON_QBITTORRENTAPI_DO_NOT_VERIFY_WEBUI_CERTIFICATE=1```
 
-Right now, short of editing main.py, set these env vars to connect to qBittorrent
+For right now, set the env vars below to automatically connect to qbittorrent:
 * ```PYTHON_QBITTORRENTAPI_HOST```
 * ```PYTHON_QBITTORRENTAPI_USERNAME```
 * ```PYTHON_QBITTORRENTAPI_PASSWORD```

@@ -26,9 +26,9 @@ except Exception:
 logger = logging.getLogger(__name__)
 
 
-HOST = 'localhost:8080'
-USERNAME = 'test'
-PASSWORD = 'testtest'
+#HOST = 'localhost:8080'
+#USERNAME = 'test'
+#PASSWORD = 'testtest'
 
 
 class TorrentServer:
@@ -166,9 +166,9 @@ class Main(object):
         self.ui = uw.raw_display.Screen()
         self.loop = uw.MainLoop(widget=None,
                                 unhandled_input=self.unhandled_urwid_loop_input)
-        self.torrent_client = Connector(host=HOST,
-                                        username=USERNAME,
-                                        password=PASSWORD)
+        self.torrent_client = Connector() #host=HOST,
+                                        #username=USERNAME,
+                                        #password=PASSWORD)
         # TODO: revamp data sharing between daemon and torrent server such that
         #       torrent server isn't dependent on daemon. This will likely require
         #       a single queue between the two. May be too much trouble though...
