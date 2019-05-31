@@ -14,11 +14,14 @@ Any Window
 Torrent List Window
 * a : open add torrent dialog
 * enter : open context menu for selected torrent
-* right arrow: open selected torrent details window
+* right arrow: open Torrent Window
 
 Torrent Window
 * left : return to Torrent List
 * esc : return to Torrent List
+* Content
+  * enter : bump priority
+  * space : bump priority
 
 Installation
 ------------

@@ -24,6 +24,7 @@ from qbittorrentui.events import server_state_changed
 from qbittorrentui.events import torrent_window_tab_change
 
 
+MAX_TORRENT_NAME_LEN = 50
 _APP_NAME = 'qBittorrenTUI'
 logger = logging.getLogger(__name__)
 
@@ -148,7 +149,7 @@ class DownloadProgressBar(uw.ProgressBar):
             percent = int(self.current * 100 / self.done)
         except ZeroDivisionError:
             percent = "unk"
-        return "%s%s" % (percent, "%")
+        return "%s%s" % (percent, "%" if percent != "unk" else "")
 
 
 class SelectableText(uw.Text):
@@ -610,10 +611,6 @@ class TorrentListBox(uw.Pile):
         def keypress(self, size, key):
             log_keypress(self, key)
             key = super(TorrentListBox.TorrentList, self).keypress(size, key)
-            # if key == 'right':
-            #    self.loop.widget = self.main.torrent_window
-            #    return None
-            # else:
             return key
 
         def get_torrent_hash_for_focused_row(self):
@@ -635,7 +632,7 @@ class TorrentListBox(uw.Pile):
 
             name_list = [torrent_row_w.cached_torrent.name for torrent_row_w in self.torrent_row_list]
             if name_list:
-                max_name_len = max(map(len, name_list))
+                max_name_len = min(MAX_TORRENT_NAME_LEN, max(map(len, name_list)))
                 for torrent_row_w in self.torrent_row_list:
                     torrent_row_w.resize_name_len(max_name_len)
             else:
@@ -820,7 +817,8 @@ class TorrentListBox(uw.Pile):
         def open_torrent_window(self):
             torrent_window = TorrentWindow(self.main,
                                            torrent_hash=self.get_torrent_hash(),
-                                           torrent=self.cached_torrent
+                                           torrent=self.cached_torrent,
+                                           client=self.torrent_list_box_w.client,
                                            )
             header_w = uw.Pile([uw.Divider(),
                                 uw.Text(self.cached_torrent['name'], align=uw.CENTER, wrap=uw.CLIP),
@@ -1008,12 +1006,12 @@ class TorrentWindow(uw.Columns):
     """
     Display window with tabs for different collections of torrent information.
     """
-    def __init__(self, main, torrent_hash, torrent):
+    def __init__(self, main, torrent_hash, torrent, client):
 
         self.tabs = {"General": TorrentWindow.GeneralWindow(),
                      "Trackers": TorrentWindow.TrackersWindow(),
                      "Peers": TorrentWindow.PeersWindow(),
-                     "Content": TorrentWindow.ContentWindow(),
+                     "Content": TorrentWindow.ContentWindow(client, torrent_hash),
                      }
 
         self.tabs_column_w = TorrentWindow.TorrentTabs(list(self.tabs.keys()))
@@ -1390,7 +1388,6 @@ class TorrentWindow(uw.Columns):
             return key
 
         class TorrentWindowGeneralTabValueContainer(uw.Columns):
-
             def __init__(self, data_elements: list, caption: str, format_func, source: str = "properties"):
                 super(TorrentWindow.GeneralWindow.TorrentWindowGeneralTabValueContainer, self).__init__([],
                                                                                                         dividechars=1,
@@ -1705,22 +1702,56 @@ class TorrentWindow(uw.Columns):
             if IS_TIMING_LOGGING_ENABLED:
                 logger.info("Updating Torrent Window Peers (%.2f)" % (time() - start_time))
 
-    class ContentWindow(uw.TreeListBox):
-        def __init__(self):
+    class ContentWindow(uw.Pile):
+        """
+        This window is a bit of a mess unfortunately...urwid trees are annoying.
+
+        The Content mixes both torrent data and display information. The Content object
+        bounces around too much in the Tree itself. Management of the "path" of a file is
+        abysmal and need normalization.
+
+        The widget that is actually displayed is built in FlagFileWidget.load_inner_widget().
+        The changing of file priorities is controlled in FlagFileWidget.unhandled_keys(),
+
+        """
+        def __init__(self, client: Connector, torrent_hash):
+            self.client = client
+            self.torrent_hash = torrent_hash
             self.focused_path = None
             self.focused_node_class = TorrentWindow.ContentWindow.DirectoryNode
             self.collapsed_dirs = []
 
+            self.title_bar = uw.Columns(
+                [
+                    (75, uw.Filler(uw.Text("Name", align=uw.LEFT, wrap=uw.SPACE))),
+                    (6, uw.Filler(uw.Text("Size", align=uw.LEFT))),
+                    uw.Filler(uw.Text("Progress", align=uw.LEFT, wrap=uw.CLIP)),
+                    (8, uw.Filler(uw.Text("Priority", align=uw.LEFT))),
+                    (6, uw.Filler(uw.Text("Remain", align=uw.LEFT))),
+                    (5, uw.Filler(uw.Text("Avail", align=uw.LEFT))),
+                ],
+                dividechars=1,
+            )
+
             self.walker = uw.TreeWalker(uw.ParentNode(''))
-            super(TorrentWindow.ContentWindow, self).__init__(self.walker)
+            self.tree_w = uw.TreeListBox(self.walker)
+            w_list = [(1, self.title_bar), self.tree_w]
+
+            super(TorrentWindow.ContentWindow, self).__init__(w_list)
 
         def update(self, sender, **kw):
+            start_time = time()
             torrent_content = kw.get('content', [])
 
-            content = TorrentWindow.ContentWindow.Content(content=torrent_content, collapsed_dirs=self.collapsed_dirs)
+            content = TorrentWindow.ContentWindow.Content(client=self.client,
+                                                          torrent_hash=self.torrent_hash,
+                                                          content=torrent_content,
+                                                          collapsed_dirs=self.collapsed_dirs)
 
             try:
+                # this will fail the first run through but is fine after that
                 focused_node = self.walker.get_focus()[1]
+                # save off the focused node so it can be refocused after refresh
                 self.focused_path = focused_node.get_value()
                 self.focused_node_class = type(focused_node)
             except Exception:
@@ -1730,14 +1761,28 @@ class TorrentWindow(uw.Columns):
                                            path=self.focused_path if self.focused_path is not None else content.root_dir())
             self.walker.set_focus(node)
 
+            if IS_TIMING_LOGGING_ENABLED:
+                logger.info("Updating Torrent Window Content (%.2f)" % (time() - start_time))
+
         class Content(object):
-            def __init__(self, content, collapsed_dirs: list):
+            def __init__(self, client, torrent_hash, content, collapsed_dirs: list):
                 super(TorrentWindow.ContentWindow.Content, self).__init__()
+                self.client = client
+                self.torrent_hash = torrent_hash
+                self._torrent_content = content
                 self._collapsed_dirs = collapsed_dirs
                 self._content_tree = dict(name=self.dir_sep(),
                                           children=list())
-                for c in content:
+
+                unwanted = '/.unwanted'
+                for c in self._torrent_content:
+                    # remove the ".unwanted" dir from all paths
+                    if unwanted in c['name']:
+                        c['name'] = c['name'][:c['name'].find(unwanted)] + c['name'][c['name'].find(unwanted)+len(unwanted):]
+
                     c_name = c.get('name', "")
+
+                    # build tree data
                     if c_name:
                         self._add_node_or_leaf(content_list=self._content_tree['children'],
                                                name=c_name,
@@ -1748,10 +1793,42 @@ class TorrentWindow(uw.Columns):
                 return [e['name'] for e in children]
 
             def is_dir(self, path):
-                return len(self.children_for_path(path))>0
+                return len(self.children_for_path(path)) > 0
 
             def root_dir(self):
                 return '/'
+
+            def get_file_ids(self, path):
+                file_ids = list()
+                for i, file in enumerate(self._torrent_content):
+                    if file['name'].startswith(path):
+                        file_ids.append(i)
+                return file_ids
+
+            def get_file_data(self, path):
+                file_data = dict(size=0,
+                                 priority='unk',
+                                 availability=100,
+                                 progress=0,
+                                 completed=0)
+                for file in self._torrent_content:
+                    if self.is_dir(path):
+                        if file['name'].startswith(path):
+                            file_data['size'] += file.get('size', 0)
+                            if file_data['priority'] == 'unk':
+                                file_data['priority'] = file.get('priority', 'unk')
+                            else:
+                                if file_data['priority'] != file.get('priority', 'unk'):
+                                    file_data['priority'] = -1
+                            file_data['availability'] = min(file_data['availability'], file.get('availability', -1))
+                            file_data['completed'] += file.get('size', 0) * file.get('progress', 0)
+
+                    else:
+                        if file['name'] == path:
+                            file_data = file
+                            file_data['completed'] = file.get('size', 0) * file.get('progress', 0)
+                            break
+                return file_data
 
             def add_collapsed_dir(self, path):
                 if path not in self._collapsed_dirs:
@@ -1763,6 +1840,9 @@ class TorrentWindow(uw.Columns):
 
             def children_for_path(self, path: str):
                 # TODO: input checking
+                if path:
+                    if path[0] != self.dir_sep():
+                        path = "%s%s" % (self.dir_sep(), path)
                 if path == self.dir_sep():
                     return self._content_tree['children']
                 path_split = path.split(self.dir_sep())
@@ -1811,6 +1891,75 @@ class TorrentWindow(uw.Columns):
             def selectable(self):
                 return True
 
+            def load_inner_widget(self):
+                """
+                {'availability': 1,
+                  'is_seed': False,
+                  'name': 'Wyatt.Cenacs.Problem.Areas.S01E10.720p.HDTV.x264-aAF[rarbg]/RARBG.txt',
+                  'piece_range': [0, 0],
+                  'priority': 4,
+                  'progress': 1,
+                  'size': 30},
+                :return:
+                """
+
+                path = self.get_normalized_path()
+
+                if path == "":
+                    return uw.Text(self.get_display_text())
+                if self.get_node().get_key() is None:
+                    return uw.Text("Content")
+
+                file_data = self.get_node()._content.get_file_data(path=path)
+                is_dir = self.get_node()._content.is_dir(path)  # type(self.get_node()) == TorrentWindow.ContentWindow.DirectoryNode
+
+                # calculate filename width
+                MAX_FILENAME_WIDTH = 75
+                file_node_offset = 1 if not is_dir else 0
+                dir_node_offset = 3 if is_dir else 0
+                depth_offset = (self.get_node().get_depth()) * 3
+                filename_width = MAX_FILENAME_WIDTH - depth_offset - file_node_offset - dir_node_offset
+
+                # filename
+                filename = self.get_node().get_key()
+
+                # map priority
+                priority_map = {-1: "Mixed",
+                                0: "Omitted",
+                                1: "Normal",
+                                4: "Normal",
+                                6: "High",
+                                7: "Maximal"}
+                priority_raw = file_data['priority']
+                priority = priority_map[priority_raw] if priority_raw in priority_map else priority_raw
+
+                # availability
+                availability_raw = file_data['availability']
+                availability = "%s" % ("%3d%s" % (availability_raw*100, "%")) if availability_raw != -1 else "N/A"
+
+                # remaining bytes
+                size_raw = file_data['size']
+                downloaded_bytes = file_data['completed']
+                remaining_bytes = size_raw - downloaded_bytes
+
+                return uw.Columns(
+                        [
+                            (filename_width, uw.Text(str(filename), align=uw.LEFT, wrap=uw.SPACE)),
+                            (6, uw.Text("%s" % natural_file_size(size_raw, gnu=True), align=uw.RIGHT)),
+                            DownloadProgressBar('pg normal', 'pg complete', current=downloaded_bytes, done=size_raw),
+                            (8, uw.Text("%s" % priority, align=uw.LEFT)),
+                            (6, uw.Text("%s" % natural_file_size(remaining_bytes, gnu=True), align=uw.RIGHT)),
+                            (5, uw.Text("%s" % availability, align=uw.RIGHT)),
+                        ],
+                        dividechars=1
+                )
+
+            def get_normalized_path(self):
+                path = self.get_node().get_value()
+                if path.startswith("/"):
+                    path = path[1:]
+                return path
+
             def keypress(self, size, key):
                 """allow subclasses to intercept keystrokes"""
                 key = self.__super.keypress(size, key)
@@ -1825,13 +1974,22 @@ class TorrentWindow(uw.Columns):
                 return key
 
             def unhandled_keys(self, size, key):
-                """
-                Override this method to intercept keystrokes in subclasses.
-                Default behavior: Toggle flagged on space, ignore other keys.
-                """
-                if key == " ":
-                    self.flagged = not self.flagged
-                    self.update_w()
+                if key in [" ", 'enter']:
+                    # self.flagged = not self.flagged
+                    # self.update_w()
+                    content = self.get_node()._content
+                    file_data = content.get_file_data(self.get_normalized_path())
+                    file_ids = content.get_file_ids(self.get_normalized_path())
+                    next_priority_map = {-1: 0,
+                                         0: 1,
+                                         1: 6,
+                                         4: 6,
+                                         6: 7,
+                                         7: 0}
+                    new_priority = next_priority_map[file_data['priority']]
+                    content.client.torrent_file_priority(torrent_id=content.torrent_hash,
+                                                         file_ids=file_ids,
+                                                         priority=new_priority)
                 else:
                     return key
 

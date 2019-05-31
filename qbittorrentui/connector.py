@@ -146,6 +146,12 @@ class Connector:
             return self._qbt_client.torrents_files(hash=torrent_id)
 
     @connection_required
+    def torrent_file_priority(self, torrent_id, file_ids, priority):
+        if self._client_type is ClientType.qbittorrent:
+            self._send_command(func=self._qbt_client.torrents_file_priority,
+                               func_args=dict(hash=torrent_id, file_ids=file_ids, priority=priority))
+
+    @connection_required
     def torrents_list(self, status_filter='all', torrent_ids=None):
         if self._client_type is ClientType.qbittorrent:
             return self._qbt_client.torrents_info(status_filter=status_filter, hashes=torrent_ids)

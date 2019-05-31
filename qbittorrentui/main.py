@@ -47,6 +47,7 @@ class TorrentServer:
         # in the daemon signal terminator, save off the end of the signal for the next loop.
         if signal_str:
             signal_list = signal_str.split(self.daemon.signal_terminator)
+            logger.info("Loop signal list: %s" % signal_list)
             if signal_str.endswith(self.daemon.signal_terminator):
                 # if the signal list terminates as expected, prepend any partial signal
                 # to the first signal and process the signals
@@ -62,19 +63,22 @@ class TorrentServer:
                 # processed for this signal event.
                 self.partial_daemon_signal = "%s%s" % (self.partial_daemon_signal, signal_list.pop(-1))
             for one_signal in signal_list:
-                if one_signal == "sync_maindata_ready":
+                signal_parts = one_signal.split(":")
+                sender = signal_parts[0]
+                signal = signal_parts[1]
+                extra = list(signal_parts[2:])
+                if signal == "sync_maindata_ready":
                     self.update_maindata()
-                elif one_signal == "server_details_ready":
+                elif signal == "server_details_ready":
                     self.update_details()
-                elif one_signal.startswith("sync_torrent_data_ready"):
-                    torrent_hash = one_signal[one_signal.find(":") + 1:]
-                    self.update_sync_torrents(torrent_hash=torrent_hash)
-                elif one_signal == "close_pipe":
+                elif signal.startswith("sync_torrent_data_ready"):
+                    self.update_sync_torrents(torrent_hash=extra[0])
+                elif signal == "close_pipe":
                     # tell urwid loop to close the read end of the pipe...daemon will close write end
                     return False
                 else:
-                    logger.info("Received unknown signal from daemon: %s" % one_signal, exc_info=True)
-                return True
+                    logger.info("Received unknown signal from daemon: sender: %s signal: %s" % (sender, signal), exc_info=True)
+            return True
 
     def update_details(self):
         self.server_details.update(self.daemon.get_server_details())
@@ -269,7 +273,6 @@ class Main(object):
         #       should also probably move this in to AppWindow
         try:
             self.torrent_client.connect()
-            logger.info("Initializing torrent list from main")
             initialize_torrent_list.send('loop startup')
             self.first_window = self.app_window
         except ConnectorError:

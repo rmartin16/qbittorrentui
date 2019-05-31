@@ -14,6 +14,7 @@ from qbittorrentui.connector import ConnectorError
 from qbittorrentui.events import server_state_changed
 from qbittorrentui.events import server_torrents_changed
 from qbittorrentui.events import update_torrent_list_now
+from qbittorrentui.events import update_torrent_window_now
 from qbittorrentui.events import server_details_changed
 from qbittorrentui.events import run_server_command
 from qbittorrentui.events import update_ui_from_daemon
@@ -58,6 +59,7 @@ class DaemonManager(threading.Thread):
         # Signals
         ########################################
         update_torrent_list_now.connect(receiver=self.sync_maindata_d.set_wake_up)
+        update_torrent_window_now.connect(receiver=self.sync_torrent_d.set_wake_up)
         run_server_command.connect(receiver=self.run_command)
         update_ui_from_daemon.connect(receiver=self.signal_ui)
 
@@ -75,12 +77,13 @@ class DaemonManager(threading.Thread):
     def signal_terminator(self):
         return self._signal_terminator
 
-    def signal_ui(self, sender, signal: str = ""):
-        signal = "%s%s" % (signal, self._signal_terminator)
+    def signal_ui(self, sender: str = "", signal: str = ""):
+        signal = "%s:%s%s" % (sender, signal, self.signal_terminator)
+        logger.info("Daemon sending signal: %s" % signal)
         if isinstance(self._daemon_signal_fd, int):
             os.write(self._daemon_signal_fd, signal.encode())
         else:
-            raise Exception("Background daemon signal file descriptor is not valid")
+            raise Exception("Background daemon signal file descriptor is not valid. sender: %s" % sender)
 
     def stop(self):
         self._stop_request.set()
@@ -90,7 +93,7 @@ class DaemonManager(threading.Thread):
         for worker in self.workers:
             worker.start()
 
-        # TODO: check if any workers died and restart them
+        # TODO: check if any workers died and restart them...maybe
         while not self._stop_request.is_set():
             try:
                 pass
@@ -213,7 +216,7 @@ class SyncTorrent(Daemon):
     def _one_loop(self):
         self._update_torrent_hashes_list()
         for torrent_hash in self._torrent_hashes:
-            self._populate_torrent_store(torrent_hash=torrent_hash)
+            self._retrieve_torrent_data(torrent_hash=torrent_hash)
             self._send_store(torrent_hash=torrent_hash)
 
     def add_sync_torrent_hash(self, torrent_hash: str):
@@ -250,11 +253,12 @@ class SyncTorrent(Daemon):
                                         trackers=list(),
                                         sync_torrent_peers=dict(full_update=True))
 
-    def _populate_torrent_store(self, torrent_hash: str):
+    def _retrieve_torrent_data(self, torrent_hash: str):
         # retrieve properties, trackers, and torrent peers info for all trackers
-        torrent = self.client.torrents_list(torrent_ids=torrent_hash)
-        if torrent:
-            torrent = torrent[0]
+        try:
+            torrent = self.client.torrents_list(torrent_ids=torrent_hash).pop()
+        except IndexError:
+            torrent = dict()
         properties = self.client.torrent_properties(torrent_id=torrent_hash)
         trackers = self.client.torrent_trackers(torrent_id=torrent_hash)
         sync_torrent_peers = self.client.sync_torrent_peers(torrent_id=torrent_hash, rid=self._rid[torrent_hash])
@@ -402,9 +406,11 @@ class Commands(Daemon):
                 command_func(**command_args)
             except Exception:
                 logger.info("Failed to run command", exc_info=True)
+
         # request server sync if commands were issued
         if ran_commands:
-            update_torrent_list_now.send('commands daemon')
+            update_torrent_list_now.send("%s daemon" % self.__class__.__name__)
+            update_torrent_window_now.send("%s daemon" % self.__class__.__name__)
 
     def run_command(self, sender, command_func: str, command_args: dict):
         self._command_q.put(dict(func=command_func, func_args=command_args))
