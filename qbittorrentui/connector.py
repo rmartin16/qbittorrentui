@@ -20,6 +20,7 @@ class LoginFailed(ConnectorError):
 
 def connection_required(f):
     """Ensure _client is connected before calling API methods."""
+
     @wraps(f)
     def wrapper(obj, *args, **kwargs):
         if not obj.is_logged_in:
@@ -28,6 +29,7 @@ def connection_required(f):
             return f(obj, *args, **kwargs)
         except Exception as e:
             raise ConnectorError(repr(e))
+
     return wrapper
 
 
@@ -161,7 +163,7 @@ class Connector:
         if self._client_type is ClientType.qbittorrent:
             self._send_command(func=self._qbt_client.torrents_delete,
                                func_args=dict(delete_files=delete_files,
-                                             hashes=torrent_ids))
+                                              hashes=torrent_ids))
 
     @connection_required
     def torrents_resume(self, torrent_ids):
@@ -239,8 +241,8 @@ class Connector:
         if self._client_type is ClientType.qbittorrent:
             self._send_command(func=self._qbt_client.torrents_set_share_limits,
                                func_args=dict(ratio_limit=ratio_limit,
-                                             seeding_time_limit=seeding_time_limit,
-                                             hashes=torrent_ids))
+                                              seeding_time_limit=seeding_time_limit,
+                                              hashes=torrent_ids))
 
     @connection_required
     def sync_maindata(self, rid):

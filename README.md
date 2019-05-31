@@ -40,3 +40,25 @@ Right now, short of editing main.py, set these env vars to connect to qBittorren
 * ```PYTHON_QBITTORRENTAPI_HOST```
 * ```PYTHON_QBITTORRENTAPI_USERNAME```
 * ```PYTHON_QBITTORRENTAPI_PASSWORD```
+
+TODO/Wishlist
+-------------
+Application
+ - [ ] Figure out the theme(s)
+ - [ ] Configuration for connections
+ - [ ] Log/activity output (likely above status bar)
+
+Torrent List Window
+ - [ ] Torrent sorting
+ - [ ] Additional torrent filtering mechanisms
+ - [ ] Torrent searching
+ - [ ] Torrent status icon in torrent name
+ - [ ] Torrent name color coding
+
+Torrent Window
+ - [ ] Make focus more obvious when switching between tabs list and a display
+ - [ ] Scrollbar in the displays
+ - [ ] Speed graph display
+
+Torrent Window Content Display
+ - [ ] Left key should return to tab list

@@ -14,6 +14,11 @@ setup(
                       'qbittorrent-api',
                       'blinker==1.4'
                       ],
+    entry_points={
+        'console_scripts': [
+            'qbittorrentui = qbittorrentui.__main__:main'
+        ]
+    },
     url='https://github.com/rmartin16/qbittorrentui',
     author='Russell Martin',
     author_email='rmartin16@gmail.com',

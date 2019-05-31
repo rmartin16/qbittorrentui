@@ -2,4 +2,4 @@ from qbittorrentui.main import run
 
 name = "qbittorrentui"
 
-run()
+# run()

@@ -1,8 +1,5 @@
 import blinker
 
-# TODO: find a new home
-IS_TIMING_LOGGING_ENABLED = True
-
 
 update_ui_from_daemon = blinker.Signal()
 """signal from a background daemon for the ui"""
@@ -20,7 +17,7 @@ refresh_torrent_list_now = blinker.Signal()
 """signal to rebuild torrent list using existing torrent data"""
 
 update_torrent_list_now = blinker.Signal()
-"""signal for dameon to immediately request any new torrent data (via sync maindata)"""
+"""signal for daemon to immediately request any new torrent data (via sync maindata)"""
 
 update_torrent_window_now = blinker.Signal()
 """signal to wake torrent sync daemon up"""

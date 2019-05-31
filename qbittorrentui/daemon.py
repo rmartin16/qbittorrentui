@@ -3,12 +3,11 @@ import os
 import queue
 from attrdict import AttrDict
 import threading
-from threading import RLock
 from time import time
 from copy import deepcopy
 
-from qbittorrentui.events import IS_TIMING_LOGGING_ENABLED
-
+from qbittorrentui.debug import IS_TIMING_LOGGING_ENABLED
+from qbittorrentui.config import DAEMON_LOOP_INTERVAL
 from qbittorrentui.connector import Connector
 from qbittorrentui.connector import ConnectorError
 from qbittorrentui.events import server_state_changed
@@ -21,11 +20,15 @@ from qbittorrentui.events import update_ui_from_daemon
 
 logger = logging.getLogger(__name__)
 
-LOOP_INTERVAL = 2
-
 
 class DaemonManager(threading.Thread):
-    def __init__(self, torrent_client, daemon_signal_fd: int):
+    """
+    Background daemon manager. Responsible for stopping and starting daemons, providing daemon interfaces to UI, and facilitate signaling of the UI.
+
+    :param torrent_client:
+    :param daemon_signal_fd:
+    """
+    def __init__(self, torrent_client: Connector, daemon_signal_fd: int):
         super(DaemonManager, self).__init__()
 
         self._stop_request = threading.Event()
@@ -79,7 +82,6 @@ class DaemonManager(threading.Thread):
 
     def signal_ui(self, sender: str = "", signal: str = ""):
         signal = "%s:%s%s" % (sender, signal, self.signal_terminator)
-        logger.info("Daemon sending signal: %s" % signal)
         if isinstance(self._daemon_signal_fd, int):
             os.write(self._daemon_signal_fd, signal.encode())
         else:
@@ -100,7 +102,7 @@ class DaemonManager(threading.Thread):
             except Exception:
                 pass
             finally:
-                self._stop_request.wait(timeout=LOOP_INTERVAL)
+                self._stop_request.wait(timeout=DAEMON_LOOP_INTERVAL)
 
         logger.info("Background manager received stop request")
 
@@ -114,20 +116,19 @@ class DaemonManager(threading.Thread):
 
 
 class Daemon(threading.Thread):
-    client: Connector
+    """
+    Base class for background daemons to send and receive data/commands with server.
 
-    def __init__(self, torrent_client):
-        """
-        Base class for background daemons to send and receive data/commands with server.
-
-        :param torrent_client:
-        """
+    :param torrent_client:
+    """
+    def __init__(self, torrent_client: Connector):
         super(Daemon, self).__init__()
         self.setDaemon(daemonic=True)
         self.stop_request = threading.Event()
         self.wake_up = threading.Event()
 
-        self._loop_interval = LOOP_INTERVAL
+        self._loop_interval = DAEMON_LOOP_INTERVAL
+        self._daemon_name = self.__class__.__name__
 
         self.client = torrent_client
 
@@ -169,12 +170,12 @@ class Daemon(threading.Thread):
 
 
 class SyncMainData(Daemon):
-    def __init__(self, torrent_client):
-        """
-        Background daemon that syncs app with server
+    """
+    Background daemon that syncs app with server
 
-        :param torrent_client:
-        """
+    :param torrent_client:
+    """
+    def __init__(self, torrent_client: Connector):
         super(SyncMainData, self).__init__(torrent_client)
 
         self.maindata_q = queue.Queue()
@@ -197,21 +198,21 @@ class SyncMainData(Daemon):
 
 
 class SyncTorrent(Daemon):
-    def __init__(self, torrent_client):
-        """
-        Background daemon that syncs data for Torrent Window.
+    """
+    Background daemon that syncs data for Torrent Window.
 
-        :param torrent_client:
-        """
+    :param torrent_client:
+    """
+    def __init__(self, torrent_client: Connector):
         super(SyncTorrent, self).__init__(torrent_client)
 
-        self._rid = {}
+        self._rid = dict()
         self._torrents_to_add_q = queue.Queue()
         self._torrents_to_remove_q = queue.Queue()
         self._torrent_hashes = list()
 
         self._torrent_stores = dict()
-        self._torrent_store_lock = RLock()
+        self._torrent_store_lock = threading.RLock()
 
     def _one_loop(self):
         self._update_torrent_hashes_list()
@@ -317,19 +318,19 @@ class SyncTorrent(Daemon):
 
 
 class ServerDetails(Daemon):
-    def __init__(self, torrent_client):
-        """
-        Background daemon that syncs server details with app
+    """
+    Background daemon that syncs server details with app.
 
-        :param torrent_client:
-        """
+    :param torrent_client:
+    """
+    def __init__(self, torrent_client: Connector):
         super(ServerDetails, self).__init__(torrent_client)
 
         self._server_details = AttrDict({'server_version': "",
                                         'api_conn_port': ""})
         self._server_preferences = AttrDict()
-        self._server_details_lock = RLock()
-        self._server_preferences_lock = RLock()
+        self._server_details_lock = threading.RLock()
+        self._server_preferences_lock = threading.RLock()
 
     def _one_loop(self):
         server_version = self.client.version()
@@ -378,12 +379,12 @@ class ServerDetails(Daemon):
 
 # TODO: implement callback ability
 class Commands(Daemon):
-    def __init__(self, torrent_client):
-        """
-        Daemon to send commands to the server
+    """
+    Daemon to send commands to the server
 
-        :param torrent_client:
-        """
+    :param torrent_client:
+    """
+    def __init__(self, torrent_client: Connector):
         super(Commands, self).__init__(torrent_client)
 
         # set a long loop interval since anything sending
@@ -409,9 +410,9 @@ class Commands(Daemon):
 
         # request server sync if commands were issued
         if ran_commands:
-            update_torrent_list_now.send("%s daemon" % self.__class__.__name__)
-            update_torrent_window_now.send("%s daemon" % self.__class__.__name__)
+            update_torrent_list_now.send("%s daemon" % self._daemon_name)
+            update_torrent_window_now.send("%s daemon" % self._daemon_name)
 
-    def run_command(self, sender, command_func: str, command_args: dict):
+    def run_command(self, sender: str, command_func: str, command_args: dict):
         self._command_q.put(dict(func=command_func, func_args=command_args))
         self.set_wake_up(sender)

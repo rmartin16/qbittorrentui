@@ -7,8 +7,8 @@ from os import environ
 
 from qbittorrentui.connector import Connector
 from qbittorrentui.connector import ConnectorError
-from qbittorrentui.windows import AppWindow
-from qbittorrentui.windows import ConnectBox
+from qbittorrentui.windows.application import AppWindow
+from qbittorrentui.windows.application import ConnectDialog
 from qbittorrentui.daemon import DaemonManager
 from qbittorrentui.events import initialize_torrent_list
 from qbittorrentui.events import server_details_changed
@@ -23,6 +23,12 @@ try:
 except Exception:
     logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger(__name__)
+
+
+HOST = 'localhost:8080'
+USERNAME = 'test'
+PASSWORD = 'testtest'
+IS_TIMING_LOGGING_ENABLED = True
 
 
 class TorrentServer:
@@ -47,7 +53,6 @@ class TorrentServer:
         # in the daemon signal terminator, save off the end of the signal for the next loop.
         if signal_str:
             signal_list = signal_str.split(self.daemon.signal_terminator)
-            logger.info("Loop signal list: %s" % signal_list)
             if signal_str.endswith(self.daemon.signal_terminator):
                 # if the signal list terminates as expected, prepend any partial signal
                 # to the first signal and process the signals
@@ -147,12 +152,6 @@ class TorrentServer:
                                               content=store.content)
 
 
-HOST = 'localhost:8080'
-USERNAME = 'test'
-PASSWORD = 'testtest'
-IS_TIMING_LOGGING_ENABLED = True
-
-
 class Main(object):
     server: TorrentServer
     torrent_client: Connector
@@ -247,7 +246,7 @@ class Main(object):
         Once the TUI shows the splash screen, setup will continue here
 
         :param loop: urwid loop
-        :param _user_data from urwid loop
+        :param _: user_data from urwid loop
         """
         start_time = time()
         self._setup_windows()
@@ -256,7 +255,7 @@ class Main(object):
         if environ.get('PYTHON_QBITTORRENTUI_DEV_ENV'):
             sleep_time_to_show_splash = 0
         # show splash screen for at least one second during startup
-        if  sleep_time_to_show_splash > 0:
+        if sleep_time_to_show_splash > 0:
             sleep(1 - (time() - start_time))
         self._show_application()
 
@@ -266,7 +265,7 @@ class Main(object):
 
     def _setup_windows(self):
         logger.info("Creating application windows")
-        self.connect_dialog_w = ConnectBox(main=self)
+        self.connect_dialog_w = ConnectDialog(main=self)
         self.app_window = AppWindow(main=self)
 
         # TODO: consider how to make the connect window more of a true dialog...may a popup
@@ -306,28 +305,3 @@ class Main(object):
     def cleanup(self):
         self.daemon.stop()
         self.daemon.join(2)
-
-
-def run():
-    main = Main()
-    try:
-        main.start()
-    except Exception:
-        # try to print some mildly helpful info about the crash
-        import sys
-        from pprint import pprint as pp
-        exc_type, exc_value, tb = sys.exc_info()
-        if tb is not None:
-            prev = tb
-            curr = tb.tb_next
-            while curr is not None:
-                prev = curr
-                curr = curr.tb_next
-            try:
-                pp(prev.tb_frame.f_locals)
-            except Exception:
-                pass
-
-        print()
-        main.cleanup()
-        raise
