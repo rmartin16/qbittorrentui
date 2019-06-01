@@ -1,13 +1,12 @@
 import urwid as uw
 from socket import getfqdn
 import logging
-from attrdict import AttrDict
 from time import time
 
 from qbittorrentui.windows.torrent_list import TorrentListWindow
 from qbittorrentui.config import APPLICATION_NAME
 from qbittorrentui.debug import log_keypress
-from qbittorrentui.debug import IS_TIMING_LOGGING_ENABLED
+from qbittorrentui.debug import log_timing
 from qbittorrentui.misc_widgets import ButtonWithoutCursor
 from qbittorrentui.connector import ConnectorError
 from qbittorrentui.connector import LoginFailed
@@ -23,12 +22,10 @@ class AppWindow(uw.Frame):
     def __init__(self, main):
         self.main = main
 
-        # build windows
+        # build app window
         self.title_bar_w = AppTitleBar()
         self.status_bar_w = AppStatusBar()
         self.torrent_list_w = TorrentListWindow(self.main)
-
-        # connect to signals
 
         super(AppWindow, self).__init__(body=self.torrent_list_w,
                                         header=self.title_bar_w,
@@ -51,7 +48,7 @@ class AppTitleBar(uw.Text):
         start_time = time()
         div_ch = "|"
         if details is None:
-            details = {}
+            details = dict()
         app_name = APPLICATION_NAME
         hostname = getfqdn()
         ver = details.get('server_version', "")
@@ -61,67 +58,58 @@ class AppTitleBar(uw.Text):
         self.set_text("%s%s%s" % (app_name,
                                   server_version_str,
                                   hostname_str,
-                                  )
-                      )
-        if IS_TIMING_LOGGING_ENABLED:
-            logger.info("Updating title bar (from %s) (%.2fs)" % (sender, time() - start_time))
+                                  ))
+        log_timing(logger, "Updating", self, sender, start_time)
 
 
 class AppStatusBar(uw.Columns):
     def __init__(self):
-        super(AppStatusBar, self).__init__(widget_list=[], dividechars=1, focus_column=None, min_width=1, box_columns=None)
+
+        self.left_column = uw.Text("", align=uw.LEFT, wrap=uw.CLIP)
+        self.right_column = uw.Padding(uw.Text("", align=uw.RIGHT, wrap=uw.CLIP))
+
+        column_w_list = [
+            (uw.PACK, self.left_column),
+            (uw.WEIGHT, 1, self.right_column)
+            ]
+        super(AppStatusBar, self).__init__(widget_list=column_w_list, dividechars=1, focus_column=None, min_width=1, box_columns=None)
         self.refresh("status bar init")
         server_state_changed.connect(receiver=self.refresh)
 
     def selectable(self):
         return False
 
-    def refresh(self, sender, server_state: AttrDict = None):
+    def refresh(self, sender, server_state: dict = None):
         start_time = time()
 
         if server_state is None:
-            server_state = {}
+            server_state = dict()
 
         status = server_state.get('connection_status', 'disconnected')
 
         dht_nodes = server_state.get('dht_nodes')
 
-        ''' ⯆[<dl rate>:<dl limit>:<dl size>] ⯅[<up rate>:<up limit>:<up size>] '''
+        ''' <dl rate>⯆ [<dl limit>] (<dl size>) <up rate>⯅ [<up limit>] (<up size>) '''
         dl_up_text = ("%s/s%s [%s%s] (%s) %s/s%s [%s%s] (%s)" %
-                      (natural_file_size(server_state.dl_info_speed, gnu=True).rjust(6),
+                      (natural_file_size(server_state.get('dl_info_speed', 0), gnu=True).rjust(6),
                        '\u25BC',
-                       natural_file_size(server_state.dl_rate_limit,
-                                         gnu=True) if server_state.dl_rate_limit not in [0, ''] else '',
-                       '/s' if server_state.dl_rate_limit not in [0, ''] else '',
-                       natural_file_size(server_state.dl_info_data, gnu=True),
-                       natural_file_size(server_state.up_info_speed, gnu=True).rjust(6),
+                       natural_file_size(server_state.get('dl_rate_limit', 0),
+                                         gnu=True) if server_state.get('dl_rate_limit', 0) not in [0, ''] else '',
+                       '/s' if server_state.get('dl_rate_limit', 0) not in [0, ''] else '',
+                       natural_file_size(server_state.get('dl_info_data', 0), gnu=True),
+                       natural_file_size(server_state.get('up_info_speed', 0), gnu=True).rjust(6),
                        '\u25B2',
-                       natural_file_size(server_state.up_rate_limit,
-                                         gnu=True) if server_state.up_rate_limit not in [0, ''] else '',
-                       '/s' if server_state.up_rate_limit not in [0, ''] else '',
-                       natural_file_size(server_state.up_info_data, gnu=True),
+                       natural_file_size(server_state.get('up_rate_limit', 0),
+                                         gnu=True) if server_state.get('up_rate_limit', 0) not in [0, ''] else '',
+                       '/s' if server_state.get('up_rate_limit', 0) not in [0, ''] else '',
+                       natural_file_size(server_state.get('up_info_data', 0), gnu=True),
                        )
                       ) if server_state.get('dl_rate_limit', '') != '' else ''
 
-        left_column_text = "%sStatus: %s" % (("DHT: %s " % dht_nodes) if dht_nodes is not None else "", status)
-        right_column_text = "%s" % dl_up_text
-        total_len = len(left_column_text) + len(right_column_text)
+        self.left_column.base_widget.set_text("%sStatus: %s" % (("DHT: %s " % dht_nodes) if dht_nodes is not None else "", status))
+        self.right_column.base_widget.set_text("%s" % dl_up_text)
 
-        self.contents.clear()  # (w, (f, width, False)
-        self.contents.append((uw.Text(left_column_text, align=uw.LEFT, wrap=uw.CLIP),
-                             (uw.WEIGHT,
-                              len(left_column_text) / total_len * 100,
-                              False)
-                              )
-                             )
-        self.contents.append((uw.Padding(uw.Text(right_column_text, align=uw.RIGHT, wrap=uw.CLIP)),
-                              (uw.WEIGHT,
-                               len(right_column_text) / total_len * 100,
-                               False)
-                              )
-                             )
-        if IS_TIMING_LOGGING_ENABLED:
-            logger.info("Updating status bar (from %s) (%.2fs)" % (sender, time() - start_time))
+        log_timing(logger, "Updating", self, sender, start_time)
 
 
 class ConnectDialog(uw.ListBox):

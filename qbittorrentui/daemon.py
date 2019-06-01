@@ -6,7 +6,7 @@ import threading
 from time import time
 from copy import deepcopy
 
-from qbittorrentui.debug import IS_TIMING_LOGGING_ENABLED
+from qbittorrentui.debug import log_timing
 from qbittorrentui.config import DAEMON_LOOP_INTERVAL
 from qbittorrentui.connector import Connector
 from qbittorrentui.connector import ConnectorError
@@ -151,8 +151,7 @@ class Daemon(threading.Thread):
                 start_time = time()
                 self.wake_up.clear()
                 self._one_loop()
-                if IS_TIMING_LOGGING_ENABLED:
-                    logger.info("Daemon %s request (%.2fs)" % (self.__class__.__name__, time() - start_time))
+                log_timing(logger, "One loop", self, "daemon loop", start_time)
             except ConnectorError:
                 logger.info("Daemon %s could not connect to server" % self.__class__.__name__)
             except Exception:
@@ -187,14 +186,24 @@ class SyncMainData(Daemon):
         #  that way I don't need to directly reference this signal here
         if server_state_changed.receivers or server_torrents_changed.receivers:
             md = self.client.sync_maindata(self._rid)
-            self.maindata_q.put(md)
+            self.maindata_q.put(SyncMainData.MainData(md))
             self.signal_ui("sync_maindata_ready")
             # only start incrementing once everyone is listening
             if server_state_changed.receivers and server_torrents_changed.receivers:
-                self._rid = md.get('_rid', 0)  # reset syncing if '_rid' is missing from response...
+                self._rid = md.get('rid', 0)  # reset syncing if '_rid' is missing from response...
         else:
             logger.info("No receivers for sync maindata...")
             self._rid = 0
+
+    class MainData(object):
+        def __init__(self, md: dict):
+            super(SyncMainData.MainData, self).__init__()
+            self.full_update = md.get('full_update', False)
+            self.server_state = md.get('server_state', dict())
+            self.torrents_removed = md.get('torrents_removed', dict())
+            self.torrents = md.get('torrents', dict())
+            self.categories_removed = md.get('categories_removed', dict())
+            self.categories = md.get('categories', dict())
 
 
 class SyncTorrent(Daemon):

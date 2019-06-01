@@ -26,9 +26,9 @@ except Exception:
 logger = logging.getLogger(__name__)
 
 
-#HOST = 'localhost:8080'
-#USERNAME = 'test'
-#PASSWORD = 'testtest'
+HOST = 'localhost:8080'
+USERNAME = 'test'
+PASSWORD = 'testtest'
 
 
 class TorrentServer:
@@ -36,10 +36,9 @@ class TorrentServer:
 
     def __init__(self, daemon):
         self.daemon = daemon
-        self.server_state = AttrDict()
-        self.torrents = AttrDict()
-        self.categories = AttrDict()
-        self.server_details = AttrDict()
+        self.server_state = dict()
+        self.categories = dict()
+        self.server_details = dict()
         self.partial_daemon_signal = ""
 
     def daemon_signal(self, signal):
@@ -73,7 +72,7 @@ class TorrentServer:
                 signal = signal_parts[1]
                 extra = list(signal_parts[2:])
                 if signal == "sync_maindata_ready":
-                    self.update_maindata()
+                    self.update_sync_maindata()
                 elif signal == "server_details_ready":
                     self.update_details()
                 elif signal.startswith("sync_torrent_data_ready"):
@@ -89,7 +88,7 @@ class TorrentServer:
         self.server_details.update(self.daemon.get_server_details())
         server_details_changed.send('torrent server', details=self.server_details)
 
-    def update_maindata(self):
+    def update_sync_maindata(self):
         """
         Retrieve maindata from bg daemon and update local server state
 
@@ -99,47 +98,41 @@ class TorrentServer:
         server_torrents_updated = False
 
         # flush the queue if it backs up for any reason...
-        while self.daemon.sync_maindata_q.qsize() > 0:
-            new_md = AttrDict(self.daemon.sync_maindata_q.get())
+        while not self.daemon.sync_maindata_q.empty():
+            md = self.daemon.sync_maindata_q.get()
 
-            if new_md.get('full_update', False):
-                self.server_state = AttrDict(new_md.server_state)
+            if md.full_update:
+                self.server_state = md.server_state
                 server_details_updated = True
-                self.torrents = AttrDict(new_md.torrents)
                 server_torrents_updated = True
-                self.categories = AttrDict(new_md.categories)
+                self.categories = md.categories
 
             else:
-                if new_md.get('server_state', {}):
-                    self.server_state.update(AttrDict(new_md.get('server_state', {})))
+                if md.server_state:
+                    self.server_state.update(md.server_state)
                     server_details_updated = True
 
-                # remove torrents no longer in qbittorrent
-                for torrent_hash in new_md.get('torrents_removed', {}):
-                    self.torrents.pop(torrent_hash)
+                # if torrents removed or updated, send the updates
+                if md.torrents_removed or md.torrents:
                     server_torrents_updated = True
-                # add new torrents or new torrent info
-                for torrent_hash, torrent in new_md.get('torrents', {}).items():
-                    server_torrents_updated = True
-                    if torrent_hash in self.torrents:
-                        self.torrents[torrent_hash].update(torrent)
-                    else:
-                        self.torrents[torrent_hash] = AttrDict(torrent)
 
                 # remove categories no longer in qbittorrent
-                for category in new_md.get('categories_removed', {}):
+                for category in md.categories_removed:
                     self.categories.pop(category, None)
                 # add new categories or new category info
-                for category_name, category in new_md.get('categories', {}).items():
+                for category_name, category in md.categories.items():
                     if category in self.categories:
                         self.categories[category_name].update(category)
                     else:
                         self.categories[category_name] = category
 
+            if server_torrents_updated:
+                server_torrents_changed.send('maindata update',
+                                             torrents=md.torrents,
+                                             torrents_removed=md.torrents_removed)
+
         if server_details_updated:
             server_state_changed.send('maindata update', server_state=self.server_state)
-        if server_torrents_updated:
-            server_torrents_changed.send('maindata update', torrents=self.torrents)
 
     def update_sync_torrents(self, torrent_hash):
         store = self.daemon.get_torrent_store(torrent_hash=torrent_hash)
@@ -166,9 +159,9 @@ class Main(object):
         self.ui = uw.raw_display.Screen()
         self.loop = uw.MainLoop(widget=None,
                                 unhandled_input=self.unhandled_urwid_loop_input)
-        self.torrent_client = Connector() #host=HOST,
-                                        #username=USERNAME,
-                                        #password=PASSWORD)
+        self.torrent_client = Connector(host=HOST,
+                                        username=USERNAME,
+                                        password=PASSWORD)
         # TODO: revamp data sharing between daemon and torrent server such that
         #       torrent server isn't dependent on daemon. This will likely require
         #       a single queue between the two. May be too much trouble though...
