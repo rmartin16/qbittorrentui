@@ -90,18 +90,18 @@ class AppStatusBar(uw.Columns):
         dht_nodes = server_state.get('dht_nodes')
 
         ''' <dl rate>⯆ [<dl limit>] (<dl size>) <up rate>⯅ [<up limit>] (<up size>) '''
-        dl_up_text = ("%s/s%s [%s%s] (%s) %s/s%s [%s%s] (%s)" %
+        dl_up_text = ("%s/s%s%s (%s) %s/s%s%s (%s)" %
                       (natural_file_size(server_state.get('dl_info_speed', 0), gnu=True).rjust(6),
                        '\u25BC',
-                       natural_file_size(server_state.get('dl_rate_limit', 0),
-                                         gnu=True) if server_state.get('dl_rate_limit', 0) not in [0, ''] else '',
-                       '/s' if server_state.get('dl_rate_limit', 0) not in [0, ''] else '',
+                       " [%s/s]" %
+                       (natural_file_size(server_state.get('dl_rate_limit', 0),
+                                          gnu=True)) if server_state.get('dl_rate_limit', 0) not in [0, ''] else '',
                        natural_file_size(server_state.get('dl_info_data', 0), gnu=True),
                        natural_file_size(server_state.get('up_info_speed', 0), gnu=True).rjust(6),
                        '\u25B2',
-                       natural_file_size(server_state.get('up_rate_limit', 0),
-                                         gnu=True) if server_state.get('up_rate_limit', 0) not in [0, ''] else '',
-                       '/s' if server_state.get('up_rate_limit', 0) not in [0, ''] else '',
+                       " [%s/s]" %
+                       (natural_file_size(server_state.get('up_rate_limit', 0),
+                                          gnu=True)) if server_state.get('up_rate_limit', 0) not in [0, ''] else '',
                        natural_file_size(server_state.get('up_info_data', 0), gnu=True),
                        )
                       ) if server_state.get('dl_rate_limit', '') != '' else ''
