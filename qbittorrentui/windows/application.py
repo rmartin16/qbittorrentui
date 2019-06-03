@@ -14,6 +14,7 @@ from qbittorrentui.formatters import natural_file_size
 from qbittorrentui.events import initialize_torrent_list
 from qbittorrentui.events import server_details_changed
 from qbittorrentui.events import server_state_changed
+from qbittorrentui.events import exit_tui
 
 logger = logging.getLogger(__name__)
 
@@ -40,25 +41,33 @@ class AppWindow(uw.Frame):
 class AppTitleBar(uw.Text):
     def __init__(self):
         """Application title bar."""
-        super(AppTitleBar, self).__init__(markup="", align=uw.CENTER, wrap=uw.CLIP, layout=None)
+        super(AppTitleBar, self).__init__(markup=APPLICATION_NAME, align=uw.CENTER, wrap=uw.CLIP, layout=None)
         self.refresh("title bar init")
         server_details_changed.connect(receiver=self.refresh)
 
     def refresh(self, sender, details: dict = None):
         start_time = time()
+
         div_ch = "|"
+        server_version_str = ""
+        hostname_str = ""
+
         if details is None:
             details = dict()
-        app_name = APPLICATION_NAME
-        hostname = getfqdn()
+
         ver = details.get('server_version', "")
+        if ver != '':
+            server_version_str = f" {div_ch} {ver}"
+
+        hostname = getfqdn()
         port = details.get('api_conn_port', "")
-        server_version_str = "%s" % (" %s %s" % (div_ch, ver) if ver != "" else "")
-        hostname_str = "%s" % (" %s %s" % (div_ch, ("%s" % ("%s:%s" % (hostname, port) if port != "" else hostname)) if hostname != "" else ""))
-        self.set_text("%s%s%s" % (app_name,
-                                  server_version_str,
-                                  hostname_str,
-                                  ))
+        if hostname:
+            hostname_str = f" {div_ch} {hostname}"
+            if port:
+                hostname_str = f"{hostname_str}:{port}"
+
+        self.set_text(f"{APPLICATION_NAME}{server_version_str}{hostname_str}")
+
         log_timing(logger, "Updating", self, sender, start_time)
 
 
@@ -85,39 +94,41 @@ class AppStatusBar(uw.Columns):
         if server_state is None:
             server_state = dict()
 
-        status = server_state.get('connection_status', 'disconnected')
+        ''' Right column => <dl rate>⯆ [<dl limit>] (<dl size>) <up rate>⯅ [<up limit>] (<up size>) '''
+        # note: have to use unicode codes to avoid chars with too many bytes...urwid doesn't handle those well
+        # <dl rate>⯆
+        dl_up_text = f"{natural_file_size(server_state.get('dl_info_speed', 0), gnu=True).rjust(6)}/s\u25BC"
+        # [<dl limit>]
+        if server_state.get('dl_rate_limit', None):
+            dl_up_text = f"{dl_up_text} [{natural_file_size(server_state.get('dl_rate_limit', 0),gnu=True)}/s]"
+        # (<dl size>)
+        dl_up_text = f"{dl_up_text} ({natural_file_size(server_state.get('dl_info_data', 0), gnu=True)})"
+        # <up rate>⯅
+        dl_up_text = f"{dl_up_text} {natural_file_size(server_state.get('up_info_speed', 0), gnu=True).rjust(6)}/s\u25B2"
+        # [<up limit>]
+        if server_state.get('up_rate_limit', None):
+            dl_up_text = f"{dl_up_text} [{natural_file_size(server_state.get('up_rate_limit', 0),gnu=True)}/s]"
+        # (<up size>)
+        dl_up_text = f"{dl_up_text} ({natural_file_size(server_state.get('up_info_data', 0), gnu=True)})"
 
-        dht_nodes = server_state.get('dht_nodes')
+        ''' Left column => DHT: # Status: <status> '''
+        dht_and_status = ""
+        if server_state.get('dht_nodes', None):
+            dht_and_status = f"DHT: {server_state.get('dht_nodes', None)} "
+        dht_and_status = f"{dht_and_status}Status: {server_state.get('connection_status', 'disconnected')}"
 
-        ''' <dl rate>⯆ [<dl limit>] (<dl size>) <up rate>⯅ [<up limit>] (<up size>) '''
-        dl_up_text = ("%s/s%s%s (%s) %s/s%s%s (%s)" %
-                      (natural_file_size(server_state.get('dl_info_speed', 0), gnu=True).rjust(6),
-                       '\u25BC',
-                       " [%s/s]" %
-                       (natural_file_size(server_state.get('dl_rate_limit', 0),
-                                          gnu=True)) if server_state.get('dl_rate_limit', 0) not in [0, ''] else '',
-                       natural_file_size(server_state.get('dl_info_data', 0), gnu=True),
-                       natural_file_size(server_state.get('up_info_speed', 0), gnu=True).rjust(6),
-                       '\u25B2',
-                       " [%s/s]" %
-                       (natural_file_size(server_state.get('up_rate_limit', 0),
-                                          gnu=True)) if server_state.get('up_rate_limit', 0) not in [0, ''] else '',
-                       natural_file_size(server_state.get('up_info_data', 0), gnu=True),
-                       )
-                      ) if server_state.get('dl_rate_limit', '') != '' else ''
-
-        self.left_column.base_widget.set_text("%sStatus: %s" % (("DHT: %s " % dht_nodes) if dht_nodes is not None else "", status))
-        self.right_column.base_widget.set_text("%s" % dl_up_text)
+        self.left_column.base_widget.set_text(dht_and_status)
+        self.right_column.base_widget.set_text(dl_up_text)
 
         log_timing(logger, "Updating", self, sender, start_time)
 
 
 class ConnectDialog(uw.ListBox):
-    def __init__(self, main):
+    def __init__(self, main, error_message: str = ""):
         self.main = main
         self.client = main.torrent_client
 
-        self.error_w = uw.Text("", align=uw.CENTER)
+        self.error_w = uw.Text(f"{error_message}", align=uw.CENTER)
         self.hostname_w = uw.Edit("Hostname: ", edit_text=self.client.host)
         self.port_w = uw.Edit("Port: ")
         self.username_w = uw.Edit("Username: ")
@@ -161,7 +172,7 @@ class ConnectDialog(uw.ListBox):
             self.leave_app()
 
     def leave_app(self, _=None):
-        raise uw.ExitMainLoop
+        exit_tui.send("connect dialog")
 
     def apply_settings(self, _):
         try:

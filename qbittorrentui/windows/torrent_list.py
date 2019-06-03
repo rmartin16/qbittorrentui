@@ -93,11 +93,12 @@ class TorrentListWindow(uw.Pile):
         refresh_torrent_list_now.connect(receiver=self.refresh_torrent_list)
         update_torrent_list_now.send("initialization")
 
-    def update_torrent_list(self, sender, torrents=None, torrents_removed=None):
+    def update_torrent_list(self, sender, full_update=False, torrents=None, torrents_removed=None):
         """
         Update torrents with new data and refresh_torrent_list window.
 
         :param sender:
+        :param full_update:
         :param torrents:
         :param torrents_removed:
         :return:
@@ -109,8 +110,8 @@ class TorrentListWindow(uw.Pile):
         if torrents_removed is None:
             torrents_removed = dict()
 
-        # this dictionary of torrents will only contain the data changed since last update
-        self.torrent_list_w.update(torrents, torrents_removed)
+        # this dictionary of torrents will only contain the data changed since last update...unless full update
+        self.torrent_list_w.update(torrents=torrents, torrents_removed=torrents_removed, full_update=full_update)
 
         log_timing(logger, "Updating", self, sender, start_time)
 
@@ -189,9 +190,12 @@ class TorrentList(uw.ListBox):
 
         self.body = uw.SimpleFocusListWalker(filtered_list)
 
-    def update(self, torrents: dict, torrents_removed: dict):
+    def update(self, torrents: dict, torrents_removed: dict, full_update=False):
         for torrent_hash in torrents_removed:
             self.torrent_row_store.pop(torrent_hash)
+
+        if full_update:
+            self.torrent_row_store = dict()
 
         # add any new torrents added on the server
         # and update all torrents

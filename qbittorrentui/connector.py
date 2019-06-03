@@ -67,7 +67,7 @@ class Connector:
                 raise LoginFailed("Missing host, username, or password")
             try:
                 self.is_logged_in = True
-                self.client_version = self._qbt_client.app_version()
+                self.client_version = self._qbt_client.app.version
             except qbt_exceptions.LoginFailed as e:
                 self.is_logged_in = False
                 raise LoginFailed(e)

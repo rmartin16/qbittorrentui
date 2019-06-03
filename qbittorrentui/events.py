@@ -7,6 +7,15 @@ update_ui_from_daemon = blinker.Signal()
 server_details_changed = blinker.Signal()
 """signal that new server details are available"""
 
+connection_to_server_status = blinker.Signal()
+"""signal that a request to the torrent server failed or succeeded"""
+
+connection_to_server_lost = blinker.Signal()
+"""signal that connection to torrent server is lost"""
+
+connection_to_server_acquired = blinker.Signal()
+"""signal that connection to torrent server is back"""
+
 server_state_changed = blinker.Signal()
 """signal that new server state information is available"""
 
@@ -30,3 +39,6 @@ initialize_torrent_list = blinker.Signal()
 
 torrent_window_tab_change = blinker.Signal()
 """signal that the tab changed in a torrent window"""
+
+exit_tui = blinker.Signal()
+"""signal to close up shop"""

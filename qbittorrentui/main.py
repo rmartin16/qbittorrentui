@@ -1,7 +1,6 @@
 import urwid as uw
 import logging
 import blinker
-from attrdict import AttrDict
 from time import time, sleep
 from os import environ
 
@@ -15,6 +14,9 @@ from qbittorrentui.events import initialize_torrent_list
 from qbittorrentui.events import server_details_changed
 from qbittorrentui.events import server_state_changed
 from qbittorrentui.events import server_torrents_changed
+from qbittorrentui.events import connection_to_server_lost
+from qbittorrentui.events import connection_to_server_acquired
+from qbittorrentui.events import exit_tui
 
 try:
     logging.basicConfig(level=logging.INFO,
@@ -67,7 +69,7 @@ class TorrentServer:
                 # processed for this signal event.
                 self.partial_daemon_signal = "%s%s" % (self.partial_daemon_signal, signal_list.pop(-1))
             for one_signal in signal_list:
-                signal_parts = one_signal.split(":")
+                signal_parts = one_signal.split(self.daemon.signal_delimiter)
                 sender = signal_parts[0]
                 signal = signal_parts[1]
                 extra = list(signal_parts[2:])
@@ -75,8 +77,12 @@ class TorrentServer:
                     self.update_sync_maindata()
                 elif signal == "server_details_ready":
                     self.update_details()
-                elif signal.startswith("sync_torrent_data_ready"):
+                elif signal == "sync_torrent_data_ready":
                     self.update_sync_torrents(torrent_hash=extra[0])
+                elif signal == "connection_lost":
+                    connection_to_server_lost.send(sender)
+                elif signal == "connection_acquired":
+                    connection_to_server_acquired.send(sender)
                 elif signal == "close_pipe":
                     # tell urwid loop to close the read end of the pipe...daemon will close write end
                     return False
@@ -128,6 +134,7 @@ class TorrentServer:
 
             if server_torrents_updated:
                 server_torrents_changed.send('maindata update',
+                                             full_update=md.full_update,
                                              torrents=md.torrents,
                                              torrents_removed=md.torrents_removed)
 
@@ -169,8 +176,24 @@ class Main(object):
                                     daemon_signal_fd=self.loop.watch_pipe(callback=self.daemon_signal))
         self.server = TorrentServer(daemon=self.daemon)
 
+        connection_to_server_lost.connect(receiver=self.connection_lost)
+        connection_to_server_acquired.connect(receiver=self.connection_acquired)
+        exit_tui.connect(receiver=self.stop_loop_and_cleanup)
+
     def daemon_signal(self, *a, **kw):
         return self.server.daemon_signal(*a, **kw)
+
+    def connection_lost(self, sender):
+        self.loop.widget = uw.Overlay(top_w=uw.LineBox(ConnectDialog(self, error_message="Connection lost")),
+                                      bottom_w=self.loop.widget,
+                                      align=uw.CENTER,
+                                      width=(uw.RELATIVE, 50),
+                                      valign=uw.MIDDLE,
+                                      height=(uw.RELATIVE, 50))
+
+    def connection_acquired(self, sender):
+        if type(self.loop.widget.top_w.base_widget) == ConnectDialog:
+            self.loop.widget = self.loop.widget.bottom_w
 
     #########################################
     # Start Application
@@ -232,6 +255,7 @@ class Main(object):
         logger.info("Starting urwid loop")
         self.loop.set_alarm_in(.001, callback=self._finish_setup)
         self.loop.run()
+        self.cleanup()
 
     def _finish_setup(self, loop, _):
         """
@@ -281,18 +305,21 @@ class Main(object):
     #########################################
     # Cleanup and Exit - always exit through here
     #########################################
-    def unhandled_urwid_loop_input(self, key):
+    @staticmethod
+    def unhandled_urwid_loop_input(key):
         if key in ('q', 'Q'):
-            self.exit()
+            exit_tui.send("main loop unhandled input")
 
-    def exit(self):
+    def stop_loop_and_cleanup(self, sender):
         """
-        Called from urwid loop's unhandled input callback.
+        Receiver of exit_tui signal from within the urwid loop to exit the app.
 
+        :param sender:
         :return:
         """
+        logger.info(f"Exiting TUI (from {sender})")
         self.cleanup()
-        raise uw.ExitMainLoop()
+        raise uw.ExitMainLoop
 
     def cleanup(self):
         self.daemon.stop()

@@ -6,8 +6,10 @@ import threading
 from time import time
 from copy import deepcopy
 
+from qbittorrentui.connector import Connector
 from qbittorrentui.debug import log_timing
 from qbittorrentui.config import DAEMON_LOOP_INTERVAL
+from qbittorrentui.config import TIME_AFTER_CONN_FAILURE_THAT_CONNECTION_IS_CONSIDERED_LOST
 from qbittorrentui.connector import Connector
 from qbittorrentui.connector import ConnectorError
 from qbittorrentui.events import server_state_changed
@@ -17,6 +19,7 @@ from qbittorrentui.events import update_torrent_window_now
 from qbittorrentui.events import server_details_changed
 from qbittorrentui.events import run_server_command
 from qbittorrentui.events import update_ui_from_daemon
+from qbittorrentui.events import connection_to_server_status
 
 logger = logging.getLogger(__name__)
 
@@ -31,9 +34,15 @@ class DaemonManager(threading.Thread):
     def __init__(self, torrent_client: Connector, daemon_signal_fd: int):
         super(DaemonManager, self).__init__()
 
+        self._wake_up = threading.Event()
         self._stop_request = threading.Event()
         self._daemon_signal_fd = daemon_signal_fd  # use os.write to send signals back to UI
         self._signal_terminator = "\n"
+        self._signal_delimiter = '\t'
+
+        self._connection_status_q = queue.Queue()
+        self._time_of_connection_failure = None
+        self._connection_failure_reported = False
 
         ########################################
         # Create daemons and their interfaces
@@ -65,6 +74,7 @@ class DaemonManager(threading.Thread):
         update_torrent_window_now.connect(receiver=self.sync_torrent_d.set_wake_up)
         run_server_command.connect(receiver=self.run_command)
         update_ui_from_daemon.connect(receiver=self.signal_ui)
+        connection_to_server_status.connect(receiver=self._connection_status_notification)
 
         ########################################
         # Enumerate the daemons
@@ -80,15 +90,49 @@ class DaemonManager(threading.Thread):
     def signal_terminator(self):
         return self._signal_terminator
 
-    def signal_ui(self, sender: str = "", signal: str = ""):
-        signal = "%s:%s%s" % (sender, signal, self.signal_terminator)
+    @property
+    def signal_delimiter(self):
+        return self._signal_delimiter
+
+    def signal_ui(self, sender: str = "", signal: str = "", extra: list = None):
+        if extra is not None:
+            for x in extra:
+                signal = f"{signal}{self.signal_delimiter}{x}"
+        signal = f"{sender}{self.signal_delimiter}{signal}{self.signal_terminator}"
         if isinstance(self._daemon_signal_fd, int):
             os.write(self._daemon_signal_fd, signal.encode())
         else:
             raise Exception("Background daemon signal file descriptor is not valid. sender: %s" % sender)
 
+    def _connection_status_notification(self, sender: str = "", success: bool = False):
+        self._connection_status_q.put(dict(sender=sender, success=success))
+        self._wake_up.set()
+
+    def _process_connection_status_notification(self):
+        while not self._connection_status_q.empty():
+            notification = self._connection_status_q.get()
+            sender = notification['sender']
+            success = notification['success']
+            if success is True:
+                # if a connection was successful but a previous connection error was reported,
+                # tell the UI the connection was reacquired
+                if self._connection_failure_reported:
+                    self.signal_ui(sender="daemon manager", signal="connection_acquired")
+                self._time_of_connection_failure = None
+                self._connection_failure_reported = False
+            else:
+                if self._time_of_connection_failure is None:
+                    self._time_of_connection_failure = time()
+                else:
+                    # if a connection has been lost for a little while, report it to the UI
+                    if time() - self._time_of_connection_failure > TIME_AFTER_CONN_FAILURE_THAT_CONNECTION_IS_CONSIDERED_LOST:
+                        if self._connection_failure_reported is False:
+                            self.signal_ui(sender="daemon manager", signal="connection_lost")
+                            self._connection_failure_reported = True
+
     def stop(self):
         self._stop_request.set()
+        self._wake_up.set()
 
     def run(self):
         # start workers
@@ -98,11 +142,12 @@ class DaemonManager(threading.Thread):
         # TODO: check if any workers died and restart them...maybe
         while not self._stop_request.is_set():
             try:
-                pass
+                self._wake_up.clear()
+                self._process_connection_status_notification()
             except Exception:
                 pass
             finally:
-                self._stop_request.wait(timeout=DAEMON_LOOP_INTERVAL)
+                self._wake_up.wait(timeout=DAEMON_LOOP_INTERVAL)
 
         logger.info("Background manager received stop request")
 
@@ -121,6 +166,7 @@ class Daemon(threading.Thread):
 
     :param torrent_client:
     """
+
     def __init__(self, torrent_client: Connector):
         super(Daemon, self).__init__()
         self.setDaemon(daemonic=True)
@@ -128,6 +174,7 @@ class Daemon(threading.Thread):
         self.wake_up = threading.Event()
 
         self._loop_interval = DAEMON_LOOP_INTERVAL
+        self._loop_success = False
         self._daemon_name = self.__class__.__name__
 
         self.client = torrent_client
@@ -136,9 +183,9 @@ class Daemon(threading.Thread):
         self.stop_request.set()
         self.set_wake_up(*a)
 
-    def signal_ui(self, signal: str):
+    def signal_ui(self, signal: str, extra: list = None):
         # right now, this is intercepted by background manager
-        update_ui_from_daemon.send("%s" % self.__class__.__name__, signal=signal)
+        update_ui_from_daemon.send("%s" % self.__class__.__name__, signal=signal, extra=extra)
 
     def set_wake_up(self, sender):
         logging.info("Waking up %s (from %s)" % (self.__class__.__name__, sender))
@@ -154,9 +201,13 @@ class Daemon(threading.Thread):
                 log_timing(logger, "One loop", self, "daemon loop", start_time)
             except ConnectorError:
                 logger.info("Daemon %s could not connect to server" % self.__class__.__name__)
+                connection_to_server_status.send(f"{self._daemon_name}", success=False)
             except Exception:
-                logger.info("Daemon %s crashed" % self.__class__.__name__, exc_info=True)
+                logger.info(f"Daemon {self._daemon_name} crashed", exc_info=True)
             finally:
+                if self._loop_success:
+                    connection_to_server_status.send(self._daemon_name, success=True)
+                    self._loop_success = False
                 # wait for next loop
                 poll_time = time() - start_time
                 if poll_time < self._loop_interval:
@@ -191,6 +242,8 @@ class SyncMainData(Daemon):
             # only start incrementing once everyone is listening
             if server_state_changed.receivers and server_torrents_changed.receivers:
                 self._rid = md.get('rid', 0)  # reset syncing if '_rid' is missing from response...
+
+            self._loop_success = True
         else:
             logger.info("No receivers for sync maindata...")
             self._rid = 0
@@ -228,6 +281,7 @@ class SyncTorrent(Daemon):
         for torrent_hash in self._torrent_hashes:
             self._retrieve_torrent_data(torrent_hash=torrent_hash)
             self._send_store(torrent_hash=torrent_hash)
+            self._loop_success = True
 
     def add_sync_torrent_hash(self, torrent_hash: str):
         self._torrents_to_add_q.put(torrent_hash)
@@ -283,7 +337,8 @@ class SyncTorrent(Daemon):
                                 sync_torrent_peers=sync_torrent_peers,
                                 content=content)
 
-    def _put_torrent_store(self, torrent_hash: str, torrent=None, properties=None, trackers=None, sync_torrent_peers=None, content=None):
+    def _put_torrent_store(self, torrent_hash: str, torrent=None, properties=None, trackers=None,
+                           sync_torrent_peers=None, content=None):
         self._torrent_store_lock.acquire()
         if torrent_hash not in self._torrent_stores:
             self._torrent_stores[torrent_hash] = SyncTorrent.TorrentStore()
@@ -309,7 +364,7 @@ class SyncTorrent(Daemon):
         self._torrent_store_lock.release()
 
     def _send_store(self, torrent_hash: str):
-        self.signal_ui("sync_torrent_data_ready:%s" % torrent_hash)
+        self.signal_ui("sync_torrent_data_ready", [torrent_hash])
 
     def _delete_torrent_store(self, torrent_hash: str):
         self._torrent_store_lock.acquire()
@@ -360,6 +415,8 @@ class ServerDetails(Daemon):
         if new_details:
             self.signal_ui("server_details_ready")
 
+        self._loop_success = True
+
     def get_server_preferences(self):
         self._server_preferences_lock.acquire()
         prefs = deepcopy(self._server_preferences)
@@ -406,19 +463,22 @@ class Commands(Daemon):
         # logger.info("Command queue length: %s" % self._command_q.qsize())
         ran_commands = False
         while not self._command_q.empty():
-            ran_commands = True
             try:
                 command = self._command_q.get()
                 command_func = command.get('func', '')
-                command_args = command.get('func_args', {})
+                command_args = command.get('func_args', dict())
                 logger.info("Background command: %s" % command_func)
                 logger.info("Background command args: %s " % command_args)
                 command_func(**command_args)
+                ran_commands = True
+            except ConnectorError:
+                raise
             except Exception:
                 logger.info("Failed to run command", exc_info=True)
 
         # request server sync if commands were issued
         if ran_commands:
+            self._loop_success = True
             update_torrent_list_now.send("%s daemon" % self._daemon_name)
             update_torrent_window_now.send("%s daemon" % self._daemon_name)
 
