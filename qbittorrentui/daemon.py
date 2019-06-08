@@ -6,10 +6,8 @@ import threading
 from time import time
 from copy import deepcopy
 
-from qbittorrentui.connector import Connector
 from qbittorrentui.debug import log_timing
-from qbittorrentui.config import DAEMON_LOOP_INTERVAL
-from qbittorrentui.config import TIME_AFTER_CONN_FAILURE_THAT_CONNECTION_IS_CONSIDERED_LOST
+from qbittorrentui.config import config
 from qbittorrentui.connector import Connector
 from qbittorrentui.connector import ConnectorError
 from qbittorrentui.events import server_state_changed
@@ -20,6 +18,7 @@ from qbittorrentui.events import server_details_changed
 from qbittorrentui.events import run_server_command
 from qbittorrentui.events import update_ui_from_daemon
 from qbittorrentui.events import connection_to_server_status
+from qbittorrentui.events import reset_daemons
 
 logger = logging.getLogger(__name__)
 
@@ -37,12 +36,9 @@ class DaemonManager(threading.Thread):
         self._wake_up = threading.Event()
         self._stop_request = threading.Event()
         self._daemon_signal_fd = daemon_signal_fd  # use os.write to send signals back to UI
-        self._signal_terminator = "\n"
-        self._signal_delimiter = '\t'
 
         self._connection_status_q = queue.Queue()
-        self._time_of_connection_failure = None
-        self._connection_failure_reported = False
+        self._connection_status = DaemonManager.ConnectionStatus()
 
         ########################################
         # Create daemons and their interfaces
@@ -88,11 +84,11 @@ class DaemonManager(threading.Thread):
 
     @property
     def signal_terminator(self):
-        return self._signal_terminator
+        return '\n'
 
     @property
     def signal_delimiter(self):
-        return self._signal_delimiter
+        return '\t'
 
     def signal_ui(self, sender: str = "", signal: str = "", extra: list = None):
         if extra is not None:
@@ -116,19 +112,21 @@ class DaemonManager(threading.Thread):
             if success is True:
                 # if a connection was successful but a previous connection error was reported,
                 # tell the UI the connection was reacquired
-                if self._connection_failure_reported:
+                if self._connection_status.connection_failure_reported:
                     self.signal_ui(sender="daemon manager", signal="connection_acquired")
                 self._time_of_connection_failure = None
-                self._connection_failure_reported = False
+                self._connection_status.connection_failure_reported = False
+                self._connection_status.never_connected = False
             else:
-                if self._time_of_connection_failure is None:
-                    self._time_of_connection_failure = time()
-                else:
-                    # if a connection has been lost for a little while, report it to the UI
-                    if time() - self._time_of_connection_failure > TIME_AFTER_CONN_FAILURE_THAT_CONNECTION_IS_CONSIDERED_LOST:
-                        if self._connection_failure_reported is False:
-                            self.signal_ui(sender="daemon manager", signal="connection_lost")
-                            self._connection_failure_reported = True
+                if self._connection_status.never_connected is False:
+                    if self._time_of_connection_failure is None:
+                        self._time_of_connection_failure = time()
+                    else:
+                        # if a connection has been lost for a little while, report it to the UI
+                        if time() - self._time_of_connection_failure > int(config.get("TIME_AFTER_CONNECTION_FAILURE_THAT_CONNECTION_IS_CONSIDERED_LOST")):
+                            if self._connection_status.connection_failure_reported is False:
+                                self.signal_ui(sender="daemon manager", signal="connection_lost")
+                                self._connection_status.connection_failure_reported = True
 
     def stop(self):
         self._stop_request.set()
@@ -147,7 +145,7 @@ class DaemonManager(threading.Thread):
             except Exception:
                 pass
             finally:
-                self._wake_up.wait(timeout=DAEMON_LOOP_INTERVAL)
+                self._wake_up.wait(timeout=int(config.get("DAEMON_LOOP_INTERVAL")))
 
         logger.info("Background manager received stop request")
 
@@ -158,6 +156,12 @@ class DaemonManager(threading.Thread):
 
         self.signal_ui("daemon manager", "close_pipe")
         os.close(self._daemon_signal_fd)
+
+    class ConnectionStatus(object):
+        def __init__(self):
+            self.never_connected = True
+            self.time_of_connection_failure = None
+            self.connection_failure_reported = False
 
 
 class Daemon(threading.Thread):
@@ -172,12 +176,21 @@ class Daemon(threading.Thread):
         self.setDaemon(daemonic=True)
         self.stop_request = threading.Event()
         self.wake_up = threading.Event()
+        self.reset = threading.Event()
 
-        self._loop_interval = DAEMON_LOOP_INTERVAL
+        self._loop_interval = int(config.get("DAEMON_LOOP_INTERVAL"))
         self._loop_success = False
         self._daemon_name = self.__class__.__name__
 
         self.client = torrent_client
+
+        reset_daemons.connect(receiver=self.reset_signal)
+
+    def reset_signal(self, *a):
+        self.reset.set()
+
+    def reset_daemon(self):
+        pass
 
     def stop(self, *a):
         self.stop_request.set()
@@ -197,6 +210,9 @@ class Daemon(threading.Thread):
             try:
                 start_time = time()
                 self.wake_up.clear()
+                if self.reset.is_set():
+                    self.reset.clear()
+                    self.reset_daemon()
                 self._one_loop()
                 log_timing(logger, "One loop", self, "daemon loop", start_time)
             except ConnectorError:
@@ -213,7 +229,7 @@ class Daemon(threading.Thread):
                 if poll_time < self._loop_interval:
                     self.wake_up.wait(self._loop_interval - poll_time)
 
-        logger.info("Daemon %s exiting" % self.__class__.__name__)
+        logger.info("Daemon %s exiting" % self._daemon_name)
 
     def _one_loop(self):
         pass
@@ -247,6 +263,12 @@ class SyncMainData(Daemon):
         else:
             logger.info("No receivers for sync maindata...")
             self._rid = 0
+
+    def reset_daemon(self):
+        logger.info(f"{self._daemon_name} is resetting")
+        self._rid = 0
+        while not self.maindata_q.empty():
+            self.maindata_q.get()
 
     class MainData(object):
         def __init__(self, md: dict):
@@ -283,6 +305,12 @@ class SyncTorrent(Daemon):
             self._send_store(torrent_hash=torrent_hash)
             self._loop_success = True
 
+    def reset_daemon(self):
+        logger.info(f"{self._daemon_name} is resetting")
+        self._rid = dict()
+        self._torrent_hashes = list()
+        self._torrent_stores = dict()
+
     def add_sync_torrent_hash(self, torrent_hash: str):
         self._torrents_to_add_q.put(torrent_hash)
         self.set_wake_up("torrent hash added")
@@ -305,7 +333,7 @@ class SyncTorrent(Daemon):
                 self._torrent_hashes.remove(torrent_hash)
                 self._delete_torrent_store(torrent_hash=torrent_hash)
 
-        # add and initialize new torrents
+        # add and reset new torrents
         while not self._torrents_to_add_q.empty():
             new_torrent_hash = self._torrents_to_add_q.get()
             if new_torrent_hash not in self._torrent_hashes:
@@ -390,8 +418,7 @@ class ServerDetails(Daemon):
     def __init__(self, torrent_client: Connector):
         super(ServerDetails, self).__init__(torrent_client)
 
-        self._server_details = AttrDict({'server_version': "",
-                                        'api_conn_port': ""})
+        self._server_details = AttrDict({'server_version': ""})
         self._server_preferences = AttrDict()
         self._server_details_lock = threading.RLock()
         self._server_preferences_lock = threading.RLock()
@@ -399,7 +426,6 @@ class ServerDetails(Daemon):
     def _one_loop(self):
         server_version = self.client.version()
         preferences = self.client.preferences()
-        connection_port = preferences.web_ui_port
 
         self.set_preferences(preferences)
 
@@ -407,9 +433,6 @@ class ServerDetails(Daemon):
         if server_details_changed.receivers:
             if server_version != self.get_server_details('server_version'):
                 self.set_server_detail('server_version', server_version)
-                new_details = True
-            if connection_port != self.get_server_details('api_conn_port'):
-                self.set_server_detail('api_conn_port', connection_port)
                 new_details = True
 
         if new_details:

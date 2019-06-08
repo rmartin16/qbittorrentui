@@ -7,8 +7,7 @@ from time import time
 from qbittorrentui.windows.torrent import TorrentWindow
 from qbittorrentui.debug import log_keypress
 from qbittorrentui.debug import log_timing
-from qbittorrentui.config import MAX_TORRENT_LIST_TORRENT_NAME_LENGTH
-from qbittorrentui.config import TORRENT_LIST_PROGRESS_BAR_LENGTH
+from qbittorrentui.config import config
 from qbittorrentui.config import STATE_MAP_FOR_DISPLAY
 from qbittorrentui.config import TORRENT_LIST_FILTERING_STATE_MAP
 from qbittorrentui.misc_widgets import ButtonWithoutCursor
@@ -204,9 +203,8 @@ class TorrentList(uw.ListBox):
             if torrent_hash not in self.torrent_row_store:
                 self.torrent_row_store[torrent_hash] = TorrentRow(torrent_list_box_w=self.torrent_list_box_w,
                                                                   torrent_hash=torrent_hash,
-                                                                  torrent=torrent
-                                                                  )
-            self.torrent_row_store[torrent_hash].update(torrents[torrent_hash])
+                                                                  torrent=torrent)
+            self.torrent_row_store[torrent_hash].update(torrent)
 
     def resize(self):
         """
@@ -221,7 +219,7 @@ class TorrentList(uw.ListBox):
 
         name_list = [torrent_row_w.cached_torrent['name'] for torrent_row_w in self.torrent_row_store.values()]
         if name_list:
-            max_name_len = min(MAX_TORRENT_LIST_TORRENT_NAME_LENGTH, max(map(len, name_list)))
+            max_name_len = min(int(config.get("TORRENT_LIST_MAX_TORRENT_NAME_LENGTH")), max(map(len, name_list)))
             for torrent_row_w in self.torrent_row_store.values():
                 torrent_row_w.resize_name_len(max_name_len)
         else:
@@ -350,7 +348,7 @@ class TorrentRow(uw.Pile):
                     self.torrent_row_columns_w.base_widget.contents[i] = (
                         self.torrent_row_columns_w.base_widget.pb_w,
                         self.torrent_row_columns_w.base_widget.options(uw.GIVEN,
-                                                                       TORRENT_LIST_PROGRESS_BAR_LENGTH,
+                                                                       int(config.get("TORRENT_LIST_PROGRESS_BAR_LENGTH")),
                                                                        False)
                     )
 
@@ -411,7 +409,7 @@ class TorrentRowColumns(uw.Columns):
         val_cont = TorrentRowColumns.TorrentInfoColumnValueContainer
         pb_cont = TorrentRowColumns.TorrentInfoColumnPBContainer
 
-        def format_title(v): return str(v).ljust(MAX_TORRENT_LIST_TORRENT_NAME_LENGTH)
+        def format_title(v): return str(v).ljust(int(config.get("TORRENT_LIST_MAX_TORRENT_NAME_LENGTH")))
         self.name_w = val_cont(name='name', raw_value="", format_func=format_title)
 
         def format_state(v):
@@ -457,7 +455,7 @@ class TorrentRowColumns(uw.Columns):
             # size
             (len(self.size_w), self.size_w),
             # progress percentage
-            (TORRENT_LIST_PROGRESS_BAR_LENGTH, self.pb_w),
+            (int(config.get("TORRENT_LIST_PROGRESS_BAR_LENGTH")), self.pb_w),
             # dl speed
             (len(self.dl_speed_w), self.dl_speed_w),
             # up speed

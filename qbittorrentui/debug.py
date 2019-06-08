@@ -2,7 +2,7 @@ import logging
 from time import time
 
 
-IS_TIMING_LOGGING_ENABLED = True
+IS_TIMING_LOGGING_ENABLED = False
 
 
 def log_keypress(logger=logging.getLogger(__name__), obj: object = None, key: str = 'unknown'):

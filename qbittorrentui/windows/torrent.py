@@ -10,7 +10,7 @@ import os
 from qbittorrentui.debug import IS_TIMING_LOGGING_ENABLED
 from qbittorrentui.debug import log_keypress
 from qbittorrentui.debug import log_timing
-from qbittorrentui.config import MAX_TORRENT_CONTENT_FILENAME_WIDTH
+from qbittorrentui.config import config
 from qbittorrentui.misc_widgets import DownloadProgressBar
 from qbittorrentui.misc_widgets import SelectableText
 from qbittorrentui.connector import Connector
@@ -963,7 +963,7 @@ class ContentDisplay(uw.Pile):
             file_node_offset = 1 if not is_dir else 0
             dir_node_offset = 3 if is_dir else 0
             depth_offset = (self.get_node().get_depth()) * 3
-            filename_width = MAX_TORRENT_CONTENT_FILENAME_WIDTH - depth_offset - file_node_offset - dir_node_offset
+            filename_width = int(config.get("TORRENT_CONTENT_MAX_FILENAME_WIDTH")) - depth_offset - file_node_offset - dir_node_offset
 
             # filename
             filename = self.get_node().get_key()

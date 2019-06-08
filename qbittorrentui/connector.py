@@ -36,7 +36,7 @@ def connection_required(f):
 class Connector:
     _qbt_client: qbt_Client
 
-    def __init__(self, client_type=ClientType.qbittorrent, host="", username="", password=""):
+    def __init__(self, client_type=ClientType.qbittorrent, host="", username="", password="", verify_certificate=True):
         self._client_type = client_type
         # self._qbt_client = None
         self.client_version = None
@@ -45,26 +45,29 @@ class Connector:
         self.host = host
         self.username = username
         self.password = password
+        self.verify_certificate = verify_certificate
 
         if client_type is ClientType.qbittorrent:
             if host and username and password:
                 try:
-                    self.connect(host, username, password)
+                    self.connect()
                 except ConnectorError:
                     pass
 
-    def connect(self, host="", username="", password=""):
-        if host == "":
+    def connect(self, host=None, username=None, password=None, verify_certificate=None):
+        if host is None:
             host = self.host
-        if username == "":
+        if username is None:
             username = self.username
-        if password == "":
+        if password is None:
             password = self.password
+        if verify_certificate is None:
+            verify_certificate = self.verify_certificate
         if self._client_type is ClientType.qbittorrent:
             try:
-                self._qbt_client = qbt_Client(host, username, password)
+                self._qbt_client = qbt_Client(host, username, password, VERIFY_WEBUI_CERTIFICATE=verify_certificate)
             except AssertionError:
-                raise LoginFailed("Missing host, username, or password")
+                raise LoginFailed("Incorrect host, username, or password")
             try:
                 self.is_logged_in = True
                 self.client_version = self._qbt_client.app.version

@@ -10,6 +10,7 @@ Key Map
 -------
 Any Window
 * q : exit
+* n : open connection dialog
 
 Torrent List Window
 * a : open add torrent dialog
@@ -33,19 +34,31 @@ $ qbittorrentui
 
 Configuration
 -------------
-If qBittorrent WebUI is using an untrusted (e.g. self-signed) cert:
-* ```export PYTHON_QBITTORRENTAPI_DO_NOT_VERIFY_WEBUI_CERTIFICATE=1```
+Connections can be pre-defined within a configuration file (modeled after default.ini). Specify the configuration file using --config_file. Each section in the file will be presented as a separate instance to connect to.
 
-For right now, set the env vars below to automatically connect to qbittorrent:
-* ```PYTHON_QBITTORRENTAPI_HOST```
-* ```PYTHON_QBITTORRENTAPI_USERNAME```
-* ```PYTHON_QBITTORRENTAPI_PASSWORD```
+Sample configuration file section:
+```
+[localhost:8080]
+HOST = localhost
+PORT = 8080
+USERNAME = admin
+PASSWORD = adminadmin
+CONNECT_AUTOMATICALLY = 1
+TIME_AFTER_CONNECTION_FAILURE_THAT_CONNECTION_IS_CONSIDERED_LOST = 5
+TORRENT_CONTENT_MAX_FILENAME_WIDTH = 75
+TORRENT_LIST_MAX_TORRENT_NAME_LENGTH = 60
+TORRENT_LIST_PROGRESS_BAR_LENGTH = 40
+DO_NOT_VERIFY_WEBUI_CERTIFICATE = 1
+```
+
+Only HOST, USERNAME, AND PASSWORD are required.
+DO_NOT_VERIFY_WEBUI_CERTIFICATE is necessary if the certificate is untrusted (e.g. self-signed).
 
 TODO/Wishlist
 -------------
 Application
  - [ ] Figure out the theme(s)
- - [ ] Configuration for connections
+ - [x] Configuration for connections
  - [ ] Log/activity output (likely above status bar)
 
 Torrent List Window

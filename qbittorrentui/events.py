@@ -35,7 +35,10 @@ run_server_command = blinker.Signal()
 """signal for background poller to send commands to server"""
 
 initialize_torrent_list = blinker.Signal()
-"""once torrent client is connected, signal to initialize the torrent list"""
+"""once torrent client is connected, signal to reset the torrent list"""
+
+reset_daemons = blinker.Signal()
+"""reset daemons upon torrent server connections"""
 
 torrent_window_tab_change = blinker.Signal()
 """signal that the tab changed in a torrent window"""

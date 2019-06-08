@@ -9,6 +9,7 @@ from qbittorrentui.connector import ConnectorError
 from qbittorrentui.windows.application import AppWindow
 from qbittorrentui.windows.application import ConnectDialog
 from qbittorrentui.config import APPLICATION_NAME
+from qbittorrentui.config import config
 from qbittorrentui.daemon import DaemonManager
 from qbittorrentui.events import initialize_torrent_list
 from qbittorrentui.events import server_details_changed
@@ -28,11 +29,6 @@ except Exception:
 logger = logging.getLogger(__name__)
 
 
-HOST = 'localhost:8080'
-USERNAME = 'test'
-PASSWORD = 'testtest'
-
-
 class TorrentServer:
     daemon: DaemonManager
 
@@ -40,7 +36,6 @@ class TorrentServer:
         self.daemon = daemon
         self.server_state = dict()
         self.categories = dict()
-        self.server_details = dict()
         self.partial_daemon_signal = ""
 
     def daemon_signal(self, signal):
@@ -91,8 +86,7 @@ class TorrentServer:
             return True
 
     def update_details(self):
-        self.server_details.update(self.daemon.get_server_details())
-        server_details_changed.send('torrent server', details=self.server_details)
+        server_details_changed.send('torrent server', details=self.daemon.get_server_details())
 
     def update_sync_maindata(self):
         """
@@ -158,17 +152,18 @@ class Main(object):
     daemon: DaemonManager
     loop: uw.MainLoop
 
-    def __init__(self):
+    def __init__(self, args=None):
         super(Main, self).__init__()
         self.connect_dialog_w = None
         self.first_window = None
 
+        if args.config_file:
+            config.read(filenames=args.config_file)
+
         self.ui = uw.raw_display.Screen()
         self.loop = uw.MainLoop(widget=None,
                                 unhandled_input=self.unhandled_urwid_loop_input)
-        self.torrent_client = Connector(host=HOST,
-                                        username=USERNAME,
-                                        password=PASSWORD)
+        self.torrent_client = Connector()
         # TODO: revamp data sharing between daemon and torrent server such that
         #       torrent server isn't dependent on daemon. This will likely require
         #       a single queue between the two. May be too much trouble though...
@@ -184,7 +179,7 @@ class Main(object):
         return self.server.daemon_signal(*a, **kw)
 
     def connection_lost(self, sender):
-        self.loop.widget = uw.Overlay(top_w=uw.LineBox(ConnectDialog(self, error_message="Connection lost")),
+        self.loop.widget = uw.Overlay(top_w=uw.LineBox(ConnectDialog(self, error_message="Connection lost...attempting automatic reconnection")),
                                       bottom_w=self.loop.widget,
                                       align=uw.CENTER,
                                       width=(uw.RELATIVE, 50),
@@ -192,8 +187,11 @@ class Main(object):
                                       height=(uw.RELATIVE, 50))
 
     def connection_acquired(self, sender):
-        if type(self.loop.widget.top_w.base_widget) == ConnectDialog:
-            self.loop.widget = self.loop.widget.bottom_w
+        try:
+            if type(self.loop.widget.top_w.base_widget) == ConnectDialog:
+                self.loop.widget = self.loop.widget.bottom_w
+        except AttributeError:
+            pass
 
     #########################################
     # Start Application
@@ -281,7 +279,7 @@ class Main(object):
 
     def _setup_windows(self):
         logger.info("Creating application windows")
-        self.connect_dialog_w = ConnectDialog(main=self)
+        self.connect_dialog_w = ConnectDialog(main=self, support_auto_connect=True)
         self.app_window = AppWindow(main=self)
 
         # TODO: consider how to make the connect window more of a true dialog...may a popup
@@ -326,8 +324,8 @@ class Main(object):
         self.daemon.join(2)
 
 
-def run():
-    program = Main()
+def run(args):
+    program = Main(args=args)
     try:
         program.start()
     except Exception:
