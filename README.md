@@ -24,6 +24,18 @@ Torrent Window
   * enter : bump priority
   * space : bump priority
 
+Recommended Installation
+------------------------
+```bash
+$ pipx install qbittorrentui
+$ pipx upgrade qbittorrentui  # to upgrade later on
+```
+
+if running ```qbittorrentui``` doesn't start the application, run this and open a new terminal window (or source your terminal's rc):
+```bash
+$ pipx ensurepath
+```
+
 Installation
 ------------
 Install from pypi:
