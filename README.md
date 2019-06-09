@@ -26,6 +26,17 @@ Torrent Window
 
 Installation
 ------------
+Install from pypi:
+```bash
+$ python3 -m venv ~/venv-qbittorrentui
+$ source ~/venv-qbittorrentui/bin/activate && pip install qbittorrentui; deactivate
+```
+Once installed, this will run it:
+```bash
+$ source ~/venv-qbittorrentui/bin/activate && qbittorrentui; deactivate
+```
+
+Or install direct from master:
 ```bash
 $ pip install -e git+https://github.com/rmartin16/qbittorrentui.git#egg=qbittorrentui
 $ qbittorrentui

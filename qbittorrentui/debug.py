@@ -4,6 +4,8 @@ from time import time
 
 IS_TIMING_LOGGING_ENABLED = False
 
+SIMULATED_LATENCY = .3
+
 
 def log_keypress(logger=logging.getLogger(__name__), obj: object = None, key: str = 'unknown'):
     logger.info("%s received key '%s'" % (obj.__class__.__name__, key))

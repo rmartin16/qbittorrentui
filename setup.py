@@ -7,6 +7,7 @@ setup(
     name='qbittorrentui',
     version='0.1',
     packages=find_packages(exclude=["*.tests", "*.tests.*", "tests.*", "tests"]),
+    package_data={'': ['default.ini']},
     include_package_data=True,
     install_requires=['urwid==2.0.1',
                       'attrdict<=2.0.1,>=2.0.0',
