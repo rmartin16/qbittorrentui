@@ -141,11 +141,11 @@ class ConnectDialog(uw.ListBox):
         self.attempt_auto_connect = False
         for section in config.keys():
             if section != "DEFAULT":
-                if support_auto_connect:
-                    if config.get(section=section, option="CONNECT_AUTOMATICALLY") != "0":
-                        if self.attempt_auto_connect is False:
-                            uw.RadioButton(self.button_group, section, state=True)
-                            self.attempt_auto_connect = True
+                if support_auto_connect \
+                        and config.get(section=section, option="CONNECT_AUTOMATICALLY") != "0" \
+                        and self.attempt_auto_connect is False:
+                    uw.RadioButton(self.button_group, section, state=True)
+                    self.attempt_auto_connect = True
                 else:
                     uw.RadioButton(self.button_group, section, state=False)
 
@@ -179,7 +179,7 @@ class ConnectDialog(uw.ListBox):
                                                        on_press=self.apply_settings),
                                    '', focus_map='selected')),
                     (10, uw.AttrMap(ButtonWithoutCursor("Cancel",
-                                                        on_press=self.leave_app),
+                                                        on_press=self.close_dialog),
                                     '', focus_map='selected')),
                     uw.Padding(uw.Text("")),
                 ], dividechars=3),
@@ -200,7 +200,14 @@ class ConnectDialog(uw.ListBox):
     def keypress(self, size, key):
         log_keypress(logger, self, key)
         key = super(ConnectDialog, self).keypress(size, key)
-        if key == 'esc':
+        if key in ['esc']:
+            self.close_dialog()
+        return key
+
+    def close_dialog(self, *a):
+        if self.main.torrent_client.is_connected and hasattr(self.main.loop.widget, "bottom_w"):
+            self.main.loop.widget = self.main.loop.widget.bottom_w
+        else:
             self.leave_app()
 
     @staticmethod

@@ -28,10 +28,9 @@ Installation
 ------------
 ```bash
 $ pip install -e git+https://github.com/rmartin16/qbittorrentui.git#egg=qbittorrentui
-
 $ qbittorrentui
 ```
-Although, I definitely recommend putting this in a python virtual environment.
+Although, I definitely recommend doing this within a virtual environment:
 ```bash
 $ python3 -m venv ~/venv-qbittorrentui
 $ source ~/venv-qbittorrentui/bin/activate && pip install -e git+https://github.com/rmartin16/qbittorrentui.git#egg=qbittorrentui; deactivate
@@ -40,6 +39,10 @@ Once installed, this will run it:
 ```bash
 $ source ~/venv-qbittorrentui/bin/activate && qbittorrentui; deactivate
 ```
+
+Installation Issues
+* Issues stemming from "#include <Python.h>":
+  * ```sudo apt-get install python3-dev```
 
 Configuration
 -------------
