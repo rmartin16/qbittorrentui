@@ -445,9 +445,8 @@ class GeneralDisplay(uw.ListBox):
             values = dict()
             source = torrent if self.source == "torrent" else properties
             for e in self.data_elements:
-                # TODO: add if back in....want to crash for now to find bugs
-                # if e in source:
-                values[e] = source[e]
+                if e in source:
+                    values[e] = source[e]
             if self.raw_value != values:
                 self.raw_value = values
 
@@ -765,7 +764,7 @@ class ContentDisplay(uw.Pile):
             dividechars=1,
         )
 
-        self.walker = uw.TreeWalker(uw.ParentNode(''))
+        self.walker = uw.TreeWalker(ContentDisplay.DirectoryNode(content=ContentDisplay.Content(self.client, torrent_hash="", content={}, collapsed_dirs=[]), path='/'))
         self.tree_w = uw.TreeListBox(self.walker)
         w_list = [(1, self.title_bar), self.tree_w]
 
@@ -1105,7 +1104,6 @@ class ContentDisplay(uw.Pile):
 
     class DirectoryNode(uw.ParentNode):
         """Metadata storage for directories"""
-
         @staticmethod
         def dir_sep(): return '/'
 

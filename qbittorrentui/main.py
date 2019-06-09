@@ -22,7 +22,7 @@ from qbittorrentui.events import exit_tui
 try:
     logging.basicConfig(level=logging.INFO,
                         format='[%(asctime)s] {%(name)s:%(lineno)d} %(levelname)s - %(message)s',
-                        filename='/home/user/output.txt',
+                        filename='/home/user/python/qbittorrentui/output.txt',
                         filemode='w')
 except Exception:
     logging.basicConfig(level=logging.WARNING)
