@@ -27,9 +27,18 @@ Torrent Window
 Installation
 ------------
 ```bash
-$ pip install git+https://github.com/rmartin16/qbittorrentui.git
+$ pip install -e git+https://github.com/rmartin16/qbittorrentui.git#egg=qbittorrentui
 
 $ qbittorrentui
+```
+Although, I definitely recommend putting this in a python virtual environment.
+```bash
+$ python3 -m venv ~/venv-qbittorrentui
+$ source ~/venv-qbittorrentui/bin/activate && pip install -e git+https://github.com/rmartin16/qbittorrentui.git#egg=qbittorrentui; deactivate
+```
+Once installed, this will run it:
+```bash
+$ source ~/venv-qbittorrentui/bin/activate && qbittorrentui; deactivate
 ```
 
 Configuration
@@ -45,7 +54,7 @@ USERNAME = admin
 PASSWORD = adminadmin
 CONNECT_AUTOMATICALLY = 1
 TIME_AFTER_CONNECTION_FAILURE_THAT_CONNECTION_IS_CONSIDERED_LOST = 5
-TORRENT_CONTENT_MAX_FILENAME_WIDTH = 75
+TORRENT_CONTENT_MAX_FILENAME_LENGTH = 75
 TORRENT_LIST_MAX_TORRENT_NAME_LENGTH = 60
 TORRENT_LIST_PROGRESS_BAR_LENGTH = 40
 DO_NOT_VERIFY_WEBUI_CERTIFICATE = 1
