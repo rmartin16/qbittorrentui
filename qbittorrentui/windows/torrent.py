@@ -7,7 +7,6 @@ from time import time
 
 import os
 
-from qbittorrentui.debug import IS_TIMING_LOGGING_ENABLED
 from qbittorrentui.debug import log_keypress
 from qbittorrentui.debug import log_timing
 from qbittorrentui.config import config

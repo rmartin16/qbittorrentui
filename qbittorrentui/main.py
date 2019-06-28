@@ -154,8 +154,6 @@ class Main(object):
 
     def __init__(self, args=None):
         super(Main, self).__init__()
-        self.connect_dialog_w = None
-        self.first_window = None
 
         if args.config_file:
             config.read(filenames=args.config_file)
@@ -179,6 +177,7 @@ class Main(object):
         return self.server.daemon_signal(*a, **kw)
 
     def connection_lost(self, sender):
+        logger.info("Connection lost...")
         self.loop.widget = uw.Overlay(top_w=uw.LineBox(ConnectDialog(self, error_message="Connection lost...attempting automatic reconnection")),
                                       bottom_w=self.loop.widget,
                                       align=uw.CENTER,
@@ -187,6 +186,7 @@ class Main(object):
                                       height=(uw.RELATIVE, 50))
 
     def connection_acquired(self, sender):
+        logger.info("Connection reacquired...")
         try:
             if type(self.loop.widget.top_w.base_widget) == ConnectDialog:
                 self.loop.widget = self.loop.widget.bottom_w
@@ -238,7 +238,7 @@ class Main(object):
     def _setup_splash(self):
         logger.info("Creating splash window")
         self.splash_screen = uw.Overlay(
-            uw.BigText("qBittorrenTUI", uw.Thin6x6Font()),
+            uw.BigText(APPLICATION_NAME, uw.Thin6x6Font()),
             uw.SolidFill(),
             'center', None, 'middle', None)
 
@@ -263,7 +263,6 @@ class Main(object):
         :param _: user_data from urwid loop
         """
         start_time = time()
-        self._setup_windows()
         self._start_daemon()
         sleep_time_to_show_splash = 1 - (time() - start_time)
         if environ.get('PYTHON_QBITTORRENTUI_DEV_ENV'):
@@ -277,28 +276,15 @@ class Main(object):
         logger.info("Starting background daemon")
         self.daemon.start()
 
-    def _setup_windows(self):
-        logger.info("Creating application windows")
-        self.connect_dialog_w = ConnectDialog(main=self, support_auto_connect=True)
-        self.app_window = AppWindow(main=self)
-
-        # TODO: consider how to make the connect window more of a true dialog...may a popup
-        #       should also probably move this in to AppWindow
-        try:
-            self.torrent_client.connect()
-            initialize_torrent_list.send('loop startup')
-            self.first_window = self.app_window
-        except ConnectorError:
-            self.first_window = uw.Overlay(top_w=uw.LineBox(self.connect_dialog_w),
-                                           bottom_w=self.app_window,
-                                           align=uw.CENTER,
-                                           width=(uw.RELATIVE, 50),
-                                           valign=uw.MIDDLE,
-                                           height=(uw.RELATIVE, 50))
-
     def _show_application(self):
         logger.info("Showing %s" % APPLICATION_NAME)
-        self.loop.widget = self.first_window
+        self.app_window = AppWindow(main=self)
+        self.loop.widget = uw.Overlay(top_w=uw.LineBox(ConnectDialog(main=self, support_auto_connect=True)),
+                                      bottom_w=self.app_window,
+                                      align=uw.CENTER,
+                                      width=(uw.RELATIVE, 50),
+                                      valign=uw.MIDDLE,
+                                      height=(uw.RELATIVE, 50))
 
     #########################################
     # Cleanup and Exit - always exit through here
