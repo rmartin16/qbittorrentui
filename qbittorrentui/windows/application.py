@@ -222,7 +222,7 @@ class ConnectDialog(uw.ListBox):
             port = self.port_w.get_edit_text()
             user = self.username_w.get_edit_text()
             password = self.password_w.get_edit_text()
-            if host and user and password:
+            if host:
                 self.client.connect(host="%s%s" % (host, ":%s" % port if port else ""),
                                     username=user,
                                     password=password)
