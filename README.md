@@ -29,12 +29,11 @@ Recommended Installation
 ```bash
 $ pipx install qbittorrentui
 $ pipx upgrade qbittorrentui  # to upgrade later on
+$ qbittorrentui  # to launch the app
+$ qbittorrentui --config_file qbtui_connections.ini
 ```
 
-if running ```qbittorrentui``` doesn't start the application, run this and open a new terminal window (or source your terminal's rc):
-```bash
-$ pipx ensurepath
-```
+If running ```qbittorrentui``` doesn't start the application, run ```pipx ensurepath``` and open a new terminal window (or source your terminal's rc).
 
 Installation
 ------------
