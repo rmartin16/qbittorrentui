@@ -5,7 +5,7 @@ with open("README.md", "r") as fh:
 
 setup(
     name='qbittorrentui',
-    version='0.1.2',
+    version='0.1.3',
     packages=find_packages(exclude=["*.tests", "*.tests.*", "tests.*", "tests"]),
     package_data={'': ['default.ini']},
     include_package_data=True,
@@ -13,8 +13,7 @@ setup(
                       'attrdict<=2.0.1,>=2.0.0',
                       'panwid==0.2.5',
                       'qbittorrent-api',
-                      'blinker==1.4'
-                      ],
+                      'blinker==1.4'],
     entry_points={
         'console_scripts': [
             'qbittorrentui = qbittorrentui.__main__:main'
@@ -29,11 +28,11 @@ setup(
     long_description=long_description,
     long_description_content_type="text/markdown",
     keywords='qbittorrent console terminal TUI text',
-    classifiers=["Programming Language :: Python :: 3.7",
+    classifiers=["Programming Language :: Python :: 3.8",
+                 "Programming Language :: Python :: 3.7",
                  "Programming Language :: Python :: 3.6",
                  "Environment :: Console",
                  'License :: OSI Approved :: GNU General Public License v3 (GPLv3)',
                  "Topic :: Communications :: File Sharing",
-                 "Topic :: Utilities",
-                 ]
+                 "Topic :: Utilities"]
 )

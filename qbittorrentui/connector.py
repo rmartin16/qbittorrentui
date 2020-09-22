@@ -65,7 +65,7 @@ class Connector:
             verify_certificate = self.verify_certificate
         if self._client_type is ClientType.qbittorrent:
             try:
-                self._qbt_client = qbt_Client(host, username, password, VERIFY_WEBUI_CERTIFICATE=verify_certificate)
+                self._qbt_client = qbt_Client(host, username=username, password=password, VERIFY_WEBUI_CERTIFICATE=verify_certificate)
             except AssertionError:
                 raise LoginFailed("Incorrect host, username, or password")
             try:
