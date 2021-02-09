@@ -22,7 +22,7 @@ from qbittorrentui.events import exit_tui
 try:
     logging.basicConfig(level=logging.INFO,
                         format='[%(asctime)s] {%(name)s:%(lineno)d} %(levelname)s - %(message)s',
-                        filename='/home/user/python/qbittorrentui/output.txt',
+                        filename='/home/russell/github/qbittorrentui/output.txt',
                         filemode='w')
 except Exception:
     logging.basicConfig(level=logging.WARNING)
@@ -252,8 +252,10 @@ class Main(object):
     def _start_tui(self):
         logger.info("Starting urwid loop")
         self.loop.set_alarm_in(.001, callback=self._finish_setup)
-        self.loop.run()
-        self.cleanup()
+        try:
+            self.loop.run()
+        except KeyboardInterrupt:
+            self.cleanup()
 
     def _finish_setup(self, loop, _):
         """
@@ -302,8 +304,13 @@ class Main(object):
         :return:
         """
         logger.info(f"Exiting TUI (from {sender})")
+        self.clear_screen()
         self.cleanup()
-        raise uw.ExitMainLoop
+        raise uw.ExitMainLoop()
+
+    def clear_screen(self):
+        self.loop.widget = uw.Filler(uw.Text(''))
+        self.loop.draw_screen()
 
     def cleanup(self):
         self.daemon.stop()

@@ -199,7 +199,7 @@ class ConnectDialog(uw.ListBox):
 
     def keypress(self, size, key):
         log_keypress(logger, self, key)
-        key = super(ConnectDialog, self).keypress(size, key)
+        key = super(ConnectDialog, self).keypress(size, {"shift tab": "up", "tab": "down"}.get(key, key))
         if key in ['esc']:
             self.close_dialog()
         return key

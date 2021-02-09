@@ -736,7 +736,7 @@ class TorrentOptionsDialog(uw.ListBox):
 
     def keypress(self, size, key):
         log_keypress(logger, self, key)
-        key = super(TorrentOptionsDialog, self).keypress(size, key)
+        key = super(TorrentOptionsDialog, self).keypress(size, {"shift tab": "up", "tab": "down"}.get(key, key))
         if key == 'esc':
             self.close_window()
         return key
@@ -991,7 +991,7 @@ class TorrentAddDialog(uw.ListBox):
 
     def keypress(self, size, key):
         log_keypress(logger, self, key)
-        key = super(TorrentAddDialog, self).keypress(size, key)
+        key = super(TorrentAddDialog, self).keypress(size, {"shift tab": "up", "tab": "down"}.get(key, key))
         if key == 'esc':
             self.close_window()
         return key
