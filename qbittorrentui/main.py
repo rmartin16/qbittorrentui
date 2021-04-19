@@ -28,6 +28,10 @@ except Exception:
     logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger(__name__)
 
+# disable third-party loggers
+logging.getLogger('urllib3').setLevel(logging.CRITICAL)
+logging.getLogger("requests").setLevel(logging.CRITICAL)
+
 
 class TorrentServer:
     daemon: DaemonManager

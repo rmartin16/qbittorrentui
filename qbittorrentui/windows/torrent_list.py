@@ -1,9 +1,9 @@
 import urwid as uw
 import logging
-from attrdict import AttrDict
 import panwid
 from time import time
 
+from qbittorrentui._attrdict import AttrDict
 from qbittorrentui.windows.torrent import TorrentWindow
 from qbittorrentui.debug import log_keypress
 from qbittorrentui.debug import log_timing
@@ -887,6 +887,10 @@ class TorrentAddDialog(uw.ListBox):
         categories["<no category>"] = "<no category>"
 
         prefs = self.main.daemon.get_server_preferences()
+        if 'create_subfolder_enabled' in prefs:
+            create_folder = prefs.create_subfolder_enabled
+        else:
+            create_folder = prefs.torrent_content_layout in ('Subfolder', 'Original')
 
         self.torrent_file_w = uw.Edit(caption="Torrent file path: ")
         self.torrent_url_w = uw.Edit(caption="Torrent url: ")
@@ -904,8 +908,7 @@ class TorrentAddDialog(uw.ListBox):
         self.download_in_sequential_order_w = uw.CheckBox("Download in Sequential Order")
         self.download_first_last_first_w = uw.CheckBox("Download First and Last Pieces First")
         self.skip_hash_check_w = uw.CheckBox("Skip Hash Check")
-        self.create_subfolder_w = uw.CheckBox("Create Subfolder",
-                                              state=prefs.create_subfolder_enabled)
+        self.create_subfolder_w = uw.CheckBox("Create Subfolder", create_folder)
         self.upload_rate_limit_w = uw.IntEdit(caption="Upload Rate Limit (Kib/s)  : ")
         self.download_rate_limit_w = uw.IntEdit(caption="Download Rate Limit (Kib/s): ")
 

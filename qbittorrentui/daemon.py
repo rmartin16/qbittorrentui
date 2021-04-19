@@ -1,11 +1,11 @@
 import logging
 import os
 import queue
-from attrdict import AttrDict
 import threading
 from time import time
 from copy import deepcopy
 
+from qbittorrentui._attrdict import AttrDict
 from qbittorrentui.debug import log_timing
 from qbittorrentui.config import config
 from qbittorrentui.connector import Connector

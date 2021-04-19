@@ -5,13 +5,12 @@ with open("README.md", "r") as fh:
 
 setup(
     name='qbittorrentui',
-    version='0.1.3',
+    version='0.2.0',
     packages=find_packages(exclude=["*.tests", "*.tests.*", "tests.*", "tests"]),
     package_data={'': ['default.ini']},
     include_package_data=True,
-    install_requires=['urwid==2.0.1',
-                      'attrdict<=2.0.1,>=2.0.0',
-                      'panwid==0.2.5',
+    install_requires=['urwid==2.1.2',
+                      'panwid @ git+git://github.com/tonycpsu/panwid@v0.3.3.dev3',
                       'qbittorrent-api',
                       'blinker==1.4'],
     entry_points={
@@ -28,11 +27,12 @@ setup(
     long_description=long_description,
     long_description_content_type="text/markdown",
     keywords='qbittorrent console terminal TUI text',
-    classifiers=["Programming Language :: Python :: 3.8",
+    classifiers=["Programming Language :: Python :: 3.9",
+                 "Programming Language :: Python :: 3.8",
                  "Programming Language :: Python :: 3.7",
                  "Programming Language :: Python :: 3.6",
                  "Environment :: Console",
-                 'License :: OSI Approved :: GNU General Public License v3 (GPLv3)',
+                 "License :: OSI Approved :: MIT License",
                  "Topic :: Communications :: File Sharing",
                  "Topic :: Utilities"]
 )

@@ -1,12 +1,12 @@
 import urwid as uw
 import logging
-from attrdict import AttrDict
 import blinker
 from datetime import datetime
 from time import time
 
 import os
 
+from qbittorrentui._attrdict import AttrDict
 from qbittorrentui.debug import log_keypress
 from qbittorrentui.debug import log_timing
 from qbittorrentui.config import config
