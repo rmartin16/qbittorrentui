@@ -5,14 +5,18 @@ with open("README.md", "r") as fh:
 
 setup(
     name='qbittorrentui',
-    version='0.2.0',
+    version='0.2.1',
     packages=find_packages(exclude=["*.tests", "*.tests.*", "tests.*", "tests"]),
     package_data={'': ['default.ini']},
     include_package_data=True,
     install_requires=['urwid==2.1.2',
-                      'panwid @ git+git://github.com/tonycpsu/panwid@v0.3.3.dev3',
                       'qbittorrent-api',
-                      'blinker==1.4'],
+                      'blinker==1.4',
+                      # for vendored panwid
+                      'urwid-utils==0.1.2',
+                      'six==1.15.0',
+                      'raccoon==3.0.0',
+                      'orderedattrdict==1.6.0'],
     entry_points={
         'console_scripts': [
             'qbittorrentui = qbittorrentui.__main__:main'
