@@ -6,7 +6,7 @@ from time import time
 
 import os
 
-from qbittorrentui._vendored._attrdict import AttrDict
+from qbittorrentui._vendored.attrdict import AttrDict
 from qbittorrentui.debug import log_keypress
 from qbittorrentui.debug import log_timing
 from qbittorrentui.config import config

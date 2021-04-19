@@ -2,8 +2,8 @@ import urwid as uw
 import logging
 from time import time
 
-from qbittorrentui._vendored._attrdict import AttrDict
-from qbittorrentui._vendored._panwid import panwid
+from qbittorrentui._vendored.attrdict import AttrDict
+from qbittorrentui._vendored import panwid
 from qbittorrentui.windows.torrent import TorrentWindow
 from qbittorrentui.debug import log_keypress
 from qbittorrentui.debug import log_timing
