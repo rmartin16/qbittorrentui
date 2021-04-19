@@ -5,7 +5,7 @@ with open("README.md", "r") as fh:
 
 setup(
     name='qbittorrentui',
-    version='0.2.1',
+    version='0.2.2',
     packages=find_packages(exclude=["*.tests", "*.tests.*", "tests.*", "tests"]),
     package_data={'': ['default.ini']},
     include_package_data=True,
