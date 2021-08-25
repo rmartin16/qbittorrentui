@@ -2,40 +2,43 @@ import logging
 import os
 import queue
 import threading
-from time import time
 from copy import deepcopy
+from time import time
 
 from qbittorrentui._vendored.attrdict import AttrDict
-from qbittorrentui.debug import log_timing
 from qbittorrentui.config import config
 from qbittorrentui.connector import Connector
 from qbittorrentui.connector import ConnectorError
+from qbittorrentui.debug import log_timing
+from qbittorrentui.events import connection_to_server_status
+from qbittorrentui.events import reset_daemons
+from qbittorrentui.events import run_server_command
+from qbittorrentui.events import server_details_changed
 from qbittorrentui.events import server_state_changed
 from qbittorrentui.events import server_torrents_changed
 from qbittorrentui.events import update_torrent_list_now
 from qbittorrentui.events import update_torrent_window_now
-from qbittorrentui.events import server_details_changed
-from qbittorrentui.events import run_server_command
 from qbittorrentui.events import update_ui_from_daemon
-from qbittorrentui.events import connection_to_server_status
-from qbittorrentui.events import reset_daemons
 
 logger = logging.getLogger(__name__)
 
 
 class DaemonManager(threading.Thread):
     """
-    Background daemon manager. Responsible for stopping and starting daemons, providing daemon interfaces to UI, and facilitate signaling of the UI.
+    Background daemon manager. Responsible for stopping and starting daemons,
+    providing daemon interfaces to UI, and facilitate signaling of the UI.
 
     :param torrent_client:
     :param daemon_signal_fd:
     """
+
     def __init__(self, torrent_client: Connector, daemon_signal_fd: int):
         super(DaemonManager, self).__init__()
 
         self._wake_up = threading.Event()
         self._stop_request = threading.Event()
-        self._daemon_signal_fd = daemon_signal_fd  # use os.write to send signals back to UI
+        # use os.write to send signals back to UI
+        self._daemon_signal_fd = daemon_signal_fd
 
         self._connection_status_q = queue.Queue()
         self._connection_status = DaemonManager.ConnectionStatus()
@@ -70,7 +73,9 @@ class DaemonManager(threading.Thread):
         update_torrent_window_now.connect(receiver=self.sync_torrent_d.set_wake_up)
         run_server_command.connect(receiver=self.run_command)
         update_ui_from_daemon.connect(receiver=self.signal_ui)
-        connection_to_server_status.connect(receiver=self._connection_status_notification)
+        connection_to_server_status.connect(
+            receiver=self._connection_status_notification
+        )
 
         ########################################
         # Enumerate the daemons
@@ -79,16 +84,16 @@ class DaemonManager(threading.Thread):
             self.sync_maindata_d,
             self.sync_torrent_d,
             self.server_details_d,
-            self.commands_d
+            self.commands_d,
         ]
 
     @property
     def signal_terminator(self):
-        return '\n'
+        return "\n"
 
     @property
     def signal_delimiter(self):
-        return '\t'
+        return "\t"
 
     def signal_ui(self, sender: str = "", signal: str = "", extra: list = None):
         if extra is not None:
@@ -98,7 +103,10 @@ class DaemonManager(threading.Thread):
         if isinstance(self._daemon_signal_fd, int):
             os.write(self._daemon_signal_fd, signal.encode())
         else:
-            raise Exception("Background daemon signal file descriptor is not valid. sender: %s" % sender)
+            raise Exception(
+                "Background daemon signal file descriptor is not valid. sender: %s"
+                % sender
+            )
 
     def _connection_status_notification(self, sender: str = "", success: bool = False):
         self._connection_status_q.put(dict(sender=sender, success=success))
@@ -107,13 +115,15 @@ class DaemonManager(threading.Thread):
     def _process_connection_status_notification(self):
         while not self._connection_status_q.empty():
             notification = self._connection_status_q.get()
-            sender = notification['sender']
-            success = notification['success']
+            sender = notification["sender"]
+            success = notification["success"]
             if success is True:
                 # if a connection was successful but a previous connection error was reported,
                 # tell the UI the connection was reacquired
                 if self._connection_status.connection_failure_reported:
-                    self.signal_ui(sender="daemon manager", signal="connection_acquired")
+                    self.signal_ui(
+                        sender="daemon manager", signal="connection_acquired"
+                    )
                 self._time_of_connection_failure = None
                 self._connection_status.connection_failure_reported = False
                 self._connection_status.never_connected = False
@@ -123,10 +133,21 @@ class DaemonManager(threading.Thread):
                         self._time_of_connection_failure = time()
                     else:
                         # if a connection has been lost for a little while, report it to the UI
-                        if time() - self._time_of_connection_failure > int(config.get("TIME_AFTER_CONNECTION_FAILURE_THAT_CONNECTION_IS_CONSIDERED_LOST")):
-                            if self._connection_status.connection_failure_reported is False:
-                                self.signal_ui(sender="daemon manager", signal="connection_lost")
-                                self._connection_status.connection_failure_reported = True
+                        if time() - self._time_of_connection_failure > int(
+                            config.get(
+                                "TIME_AFTER_CONNECTION_FAILURE_THAT_CONNECTION_IS_CONSIDERED_LOST"
+                            )
+                        ):
+                            if (
+                                self._connection_status.connection_failure_reported
+                                is False
+                            ):
+                                self.signal_ui(
+                                    sender="daemon manager", signal="connection_lost"
+                                )
+                                self._connection_status.connection_failure_reported = (
+                                    True
+                                )
 
     def stop(self):
         self._stop_request.set()
@@ -151,13 +172,13 @@ class DaemonManager(threading.Thread):
 
         # request workers to stop
         for worker in self.workers:
-            worker.stop('shutdown')
+            worker.stop("shutdown")
             worker.join(timeout=1)
 
         self.signal_ui("daemon manager", "close_pipe")
         os.close(self._daemon_signal_fd)
 
-    class ConnectionStatus(object):
+    class ConnectionStatus:
         def __init__(self):
             self.never_connected = True
             self.time_of_connection_failure = None
@@ -198,10 +219,10 @@ class Daemon(threading.Thread):
 
     def signal_ui(self, signal: str, extra: list = None):
         # right now, this is intercepted by background manager
-        update_ui_from_daemon.send("%s" % self.__class__.__name__, signal=signal, extra=extra)
+        update_ui_from_daemon.send(self.__class__.__name__, signal=signal, extra=extra)
 
     def set_wake_up(self, sender):
-        logging.info("Waking up %s (from %s)" % (self.__class__.__name__, sender))
+        logging.info("Waking up %s (from %s)", self.__class__.__name__, sender)
         self.wake_up.set()
 
     def run(self):
@@ -214,12 +235,14 @@ class Daemon(threading.Thread):
                     self.reset.clear()
                     self.reset_daemon()
                 self._one_loop()
-                log_timing(logger, "One loop", self, "daemon loop", start_time)
+                assert log_timing(logger, "One loop", self, "daemon loop", start_time)
             except ConnectorError:
-                logger.info("Daemon %s could not connect to server" % self.__class__.__name__)
+                logger.info(
+                    "Daemon %s could not connect to server", self.__class__.__name__
+                )
                 connection_to_server_status.send(f"{self._daemon_name}", success=False)
             except Exception:
-                logger.info(f"Daemon {self._daemon_name} crashed", exc_info=True)
+                logger.info("Daemon %s crashed", self._daemon_name, exc_info=True)
             finally:
                 if self._loop_success:
                     connection_to_server_status.send(self._daemon_name, success=True)
@@ -229,7 +252,7 @@ class Daemon(threading.Thread):
                 if poll_time < self._loop_interval:
                     self.wake_up.wait(self._loop_interval - poll_time)
 
-        logger.info("Daemon %s exiting" % self._daemon_name)
+        logger.info("Daemon %s exiting", self._daemon_name)
 
     def _one_loop(self):
         pass
@@ -241,6 +264,7 @@ class SyncMainData(Daemon):
 
     :param torrent_client:
     """
+
     def __init__(self, torrent_client: Connector):
         super(SyncMainData, self).__init__(torrent_client)
 
@@ -257,7 +281,8 @@ class SyncMainData(Daemon):
             self.signal_ui("sync_maindata_ready")
             # only start incrementing once everyone is listening
             if server_state_changed.receivers and server_torrents_changed.receivers:
-                self._rid = md.get('rid', 0)  # reset syncing if '_rid' is missing from response...
+                # reset syncing if '_rid' is missing from response...
+                self._rid = md.get("rid", 0)
 
             self._loop_success = True
         else:
@@ -265,20 +290,20 @@ class SyncMainData(Daemon):
             self._rid = 0
 
     def reset_daemon(self):
-        logger.info(f"{self._daemon_name} is resetting")
+        logger.info("%s is resetting", self._daemon_name)
         self._rid = 0
         while not self.maindata_q.empty():
             self.maindata_q.get()
 
-    class MainData(object):
+    class MainData:
         def __init__(self, md: dict):
             super(SyncMainData.MainData, self).__init__()
-            self.full_update = md.get('full_update', False)
-            self.server_state = md.get('server_state', dict())
-            self.torrents_removed = md.get('torrents_removed', dict())
-            self.torrents = md.get('torrents', dict())
-            self.categories_removed = md.get('categories_removed', dict())
-            self.categories = md.get('categories', dict())
+            self.full_update = md.get("full_update", False)
+            self.server_state = md.get("server_state", dict())
+            self.torrents_removed = md.get("torrents_removed", dict())
+            self.torrents = md.get("torrents", dict())
+            self.categories_removed = md.get("categories_removed", dict())
+            self.categories = md.get("categories", dict())
 
 
 class SyncTorrent(Daemon):
@@ -287,15 +312,16 @@ class SyncTorrent(Daemon):
 
     :param torrent_client:
     """
+
     def __init__(self, torrent_client: Connector):
         super(SyncTorrent, self).__init__(torrent_client)
 
-        self._rid = dict()
+        self._rid = {}
         self._torrents_to_add_q = queue.Queue()
         self._torrents_to_remove_q = queue.Queue()
-        self._torrent_hashes = list()
+        self._torrent_hashes = []
 
-        self._torrent_stores = dict()
+        self._torrent_stores = {}
         self._torrent_store_lock = threading.RLock()
 
     def _one_loop(self):
@@ -306,10 +332,10 @@ class SyncTorrent(Daemon):
             self._loop_success = True
 
     def reset_daemon(self):
-        logger.info(f"{self._daemon_name} is resetting")
-        self._rid = dict()
-        self._torrent_hashes = list()
-        self._torrent_stores = dict()
+        logger.info("%s is resetting", self._daemon_name)
+        self._rid = {}
+        self._torrent_hashes = []
+        self._torrent_stores = {}
 
     def add_sync_torrent_hash(self, torrent_hash: str):
         self._torrents_to_add_q.put(torrent_hash)
@@ -339,56 +365,72 @@ class SyncTorrent(Daemon):
             if new_torrent_hash not in self._torrent_hashes:
                 self._rid[new_torrent_hash] = 0
                 self._torrent_hashes.append(new_torrent_hash)
-                self._put_torrent_store(torrent_hash=new_torrent_hash,
-                                        torrent=dict(),
-                                        properties=dict(),
-                                        trackers=list(),
-                                        sync_torrent_peers=dict(full_update=True))
+                self._put_torrent_store(
+                    torrent_hash=new_torrent_hash,
+                    torrent={},
+                    properties={},
+                    trackers=[],
+                    sync_torrent_peers=dict(full_update=True),
+                )
 
     def _retrieve_torrent_data(self, torrent_hash: str):
         # retrieve properties, trackers, and torrent peers info for all trackers
         try:
             torrent = self.client.torrents_list(torrent_ids=torrent_hash).pop()
         except IndexError:
-            torrent = dict()
+            torrent = {}
         properties = self.client.torrent_properties(torrent_id=torrent_hash)
         trackers = self.client.torrent_trackers(torrent_id=torrent_hash)
-        sync_torrent_peers = self.client.sync_torrent_peers(torrent_id=torrent_hash, rid=self._rid[torrent_hash])
-        self._rid[torrent_hash] = sync_torrent_peers.get('rid', 0)
+        sync_torrent_peers = self.client.sync_torrent_peers(
+            torrent_id=torrent_hash, rid=self._rid[torrent_hash]
+        )
+        self._rid[torrent_hash] = sync_torrent_peers.get("rid", 0)
         content = self.client.torrent_files(torrent_id=torrent_hash)
 
         # put everything in to the store for the torrent
-        self._put_torrent_store(torrent_hash=torrent_hash,
-                                torrent=torrent,
-                                properties=properties,
-                                trackers=trackers,
-                                sync_torrent_peers=sync_torrent_peers,
-                                content=content)
+        self._put_torrent_store(
+            torrent_hash=torrent_hash,
+            torrent=torrent,
+            properties=properties,
+            trackers=trackers,
+            sync_torrent_peers=sync_torrent_peers,
+            content=content,
+        )
 
-    def _put_torrent_store(self, torrent_hash: str, torrent=None, properties=None, trackers=None,
-                           sync_torrent_peers=None, content=None):
+    def _put_torrent_store(
+        self,
+        torrent_hash: str,
+        torrent=None,
+        properties=None,
+        trackers=None,
+        sync_torrent_peers=None,
+        content=None,
+    ):
         self._torrent_store_lock.acquire()
         if torrent_hash not in self._torrent_stores:
             self._torrent_stores[torrent_hash] = SyncTorrent.TorrentStore()
+        store = self._torrent_stores[torrent_hash]
         if torrent:
-            self._torrent_stores[torrent_hash].torrent = torrent
+            store.torrent = torrent
         if properties:
-            self._torrent_stores[torrent_hash].properties = properties
+            store.properties = properties
         if trackers:
-            self._torrent_stores[torrent_hash].trackers = trackers
+            store.trackers = trackers
         if sync_torrent_peers:
-            if sync_torrent_peers.get('full_update', False):
-                self._torrent_stores[torrent_hash].sync_torrent_peers = sync_torrent_peers.get('peers', {})
+            if sync_torrent_peers.get("full_update", False):
+                self._torrent_stores[
+                    torrent_hash
+                ].sync_torrent_peers = sync_torrent_peers.get("peers", {})
             else:
-                for peer in sync_torrent_peers.get('peers_removed', []):
-                    self._torrent_stores[torrent_hash].sync_torrent_peers.pop(peer)
-                for peer, peer_dict in sync_torrent_peers.get('peers', {}).items():
-                    if peer in self._torrent_stores[torrent_hash].sync_torrent_peers:
-                        self._torrent_stores[torrent_hash].sync_torrent_peers[peer].update(peer_dict)
+                for peer in sync_torrent_peers.get("peers_removed", []):
+                    store.sync_torrent_peers.pop(peer)
+                for peer, peer_dict in sync_torrent_peers.get("peers", {}).items():
+                    if peer in store.sync_torrent_peers:
+                        store.sync_torrent_peers[peer].update(peer_dict)
                     else:
-                        self._torrent_stores[torrent_hash].sync_torrent_peers[peer] = peer_dict
+                        store.sync_torrent_peers[peer] = peer_dict
         if content:
-            self._torrent_stores[torrent_hash].content = content
+            store.content = content
         self._torrent_store_lock.release()
 
     def _send_store(self, torrent_hash: str):
@@ -399,14 +441,14 @@ class SyncTorrent(Daemon):
         self._torrent_stores.pop(torrent_hash, None)
         self._torrent_store_lock.release()
 
-    class TorrentStore(object):
+    class TorrentStore:
         def __init__(self):
             super(SyncTorrent.TorrentStore, self).__init__()
             self.torrent = AttrDict()
             self.properties = AttrDict()
-            self.trackers = list()
+            self.trackers = []
             self.sync_torrent_peers = AttrDict()
-            self.content = list()
+            self.content = []
 
 
 class ServerDetails(Daemon):
@@ -415,10 +457,11 @@ class ServerDetails(Daemon):
 
     :param torrent_client:
     """
+
     def __init__(self, torrent_client: Connector):
         super(ServerDetails, self).__init__(torrent_client)
 
-        self._server_details = AttrDict({'server_version': ""})
+        self._server_details = AttrDict({"server_version": ""})
         self._server_preferences = AttrDict()
         self._server_details_lock = threading.RLock()
         self._server_preferences_lock = threading.RLock()
@@ -431,8 +474,8 @@ class ServerDetails(Daemon):
 
         new_details = False
         if server_details_changed.receivers:
-            if server_version != self.get_server_details('server_version'):
-                self.set_server_detail('server_version', server_version)
+            if server_version != self.get_server_details("server_version"):
+                self.set_server_detail("server_version", server_version)
                 new_details = True
 
         if new_details:
@@ -473,6 +516,7 @@ class Commands(Daemon):
 
     :param torrent_client:
     """
+
     def __init__(self, torrent_client: Connector):
         super(Commands, self).__init__(torrent_client)
 
@@ -483,15 +527,15 @@ class Commands(Daemon):
         self._command_q = queue.Queue()
 
     def _one_loop(self):
-        # logger.info("Command queue length: %s" % self._command_q.qsize())
+        # logger.info("Command queue length: %s", self._command_q.qsize())
         ran_commands = False
         while not self._command_q.empty():
             try:
                 command = self._command_q.get()
-                command_func = command.get('func', '')
-                command_args = command.get('func_args', dict())
-                logger.info("Background command: %s" % command_func)
-                logger.info("Background command args: %s " % command_args)
+                command_func = command.get("func", "")
+                command_args = command.get("func_args", dict())
+                logger.info("Background command: %s", command_func)
+                logger.info("Background command args: %s ", command_args)
                 command_func(**command_args)
                 ran_commands = True
             except ConnectorError:

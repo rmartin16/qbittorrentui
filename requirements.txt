@@ -1,0 +1,4 @@
+urwid==2.1.2
+qbittorrent-api
+blinker-alt==1.5
+panwid==0.3.3
