@@ -7,6 +7,8 @@ import blinker
 import urwid as uw
 
 from qbittorrentui._vendored.attrdict import AttrDict
+from qbittorrentui.config import INFINITY
+from qbittorrentui.config import SECS_INFINITY
 from qbittorrentui.config import config
 from qbittorrentui.connector import Connector
 from qbittorrentui.debug import log_keypress
@@ -139,14 +141,14 @@ class GeneralDisplay(uw.ListBox):
             def format_reannounce(reannounce=0):
                 return format_time_delta(seconds=reannounce)
 
-            def format_eta(eta=8640000):
+            def format_eta(eta=SECS_INFINITY):
                 return format_time_delta(seconds=eta, infinity=True)
 
             def format_time_delta(seconds=0, infinity=False):
                 if infinity:
-                    if seconds < 100 * 24 * 60 * 60:  # 100 days
+                    if seconds < SECS_INFINITY:
                         return pretty_time_delta(seconds=seconds, spaces=True)
-                    return "\u221E"  # ∞
+                    return INFINITY
                 return pretty_time_delta(seconds=seconds, spaces=True)
 
             def format_pieces(pieces_num=0, piece_size=0, pieces_have=0):
@@ -188,7 +190,7 @@ class GeneralDisplay(uw.ListBox):
 
             def format_up_or_down_limit(limit=0):
                 if limit == -1:
-                    return "\u221E"  # ∞
+                    return INFINITY
                 return f"{format_size(size_bytes=limit)}/s"
 
             def format_wasted(total_wasted=0):

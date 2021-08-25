@@ -31,6 +31,12 @@ class Configuration(configparser.ConfigParser):
 
 # CONSTANTS
 APPLICATION_NAME = "qBittorrenTUI"
+# when a count of seconds should just be represented as infinity
+SECS_INFINITY = 100 * 24 * 60 * 60  # 100 days
+INFINITY = "\u221E"  # ∞
+DOWN_TRIANGLE = "\u25BC"  # ▼
+UP_TRIANGLE = "\u25B2"  # ▲
+UP_ARROW = "\u21D1"  # ⇑
 STATE_MAP_FOR_DISPLAY = {
     "pausedUP": "Completed",
     "uploading": "Seeding",
@@ -43,8 +49,8 @@ STATE_MAP_FOR_DISPLAY = {
     "checkingUP": "Checking",
     "downloading": "Downloading",
     "forcedDL": "[F] Downloading",
-    "forcedMetaDL": "[F] Downloading",
-    "metaDL": "Downloading",
+    "forcedMetaDL": "[F] Metadata DL",
+    "metaDL": "Metadata DL",
     "stalledDL": "Stalled",
     "allocating": "Allocating",
     "moving": "Moving",
@@ -73,6 +79,7 @@ TORRENT_LIST_FILTERING_STATE_MAP = {
     ],
     "active": [
         "metaDL",
+        "forcedMetaDL",
         "downloading",
         "forcedDL",
         "uploading",
@@ -113,6 +120,7 @@ TORRENT_LIST_FILTERING_STATE_MAP = {
         "downloading",
         "forcedDL",
         "metaDL",
+        "forcedMetaDL",
         "stalledDL",
         "allocating",
         "moving",

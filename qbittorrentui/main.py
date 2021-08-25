@@ -244,11 +244,8 @@ class Main:
             ("dark blue on default", "dark blue", ""),
             ("dark cyan on default", "dark cyan", ""),
             ("dark green on default", "dark green", ""),
-            (
-                "light red on default",
-                "light red",
-                "",
-            ),
+            ("dark magenta on default", "dark magenta", ""),
+            ("light red on default", "light red", ""),
             ("selected", "white,bold", "dark blue", "standout"),
             ("pg normal", "", ""),
             ("pg complete", "", "dark blue"),

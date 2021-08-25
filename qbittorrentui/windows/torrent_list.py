@@ -5,8 +5,13 @@ import panwid
 import urwid as uw
 
 from qbittorrentui._vendored.attrdict import AttrDict
+from qbittorrentui.config import DOWN_TRIANGLE
+from qbittorrentui.config import INFINITY
+from qbittorrentui.config import SECS_INFINITY
 from qbittorrentui.config import STATE_MAP_FOR_DISPLAY
 from qbittorrentui.config import TORRENT_LIST_FILTERING_STATE_MAP
+from qbittorrentui.config import UP_ARROW
+from qbittorrentui.config import UP_TRIANGLE
 from qbittorrentui.config import config
 from qbittorrentui.connector import Connector
 from qbittorrentui.debug import log_keypress
@@ -167,7 +172,9 @@ class TorrentList(uw.ListBox):
 
     def get_torrent_hash_for_focused_row(self):
         focused_row, focused_row_pos = self.body.get_focus()
-        if isinstance(focused_row, TorrentRow):
+        if focused_row is None:
+            return None
+        if isinstance(focused_row.base_widget, TorrentRow):
             return focused_row.base_widget.get_torrent_hash()
         return None
 
@@ -180,8 +187,8 @@ class TorrentList(uw.ListBox):
         """
         found = False
         if torrent_hash is not None:
-            for pos, torrent in enumerate(self.body):
-                if torrent.base_widget.get_torrent_hash() == torrent_hash:
+            for pos, torrent_row_w in enumerate(self.body):
+                if torrent_row_w.base_widget.get_torrent_hash() == torrent_hash:
                     self.body.set_focus(pos)
                     found = True
                     break
@@ -189,7 +196,7 @@ class TorrentList(uw.ListBox):
             self.body.set_focus(0)
 
     def apply_torrent_list_filter(self, status_filter: str):
-        filtered_list = list()
+        filtered_list = []
         if status_filter != "all":
             for torrent_row_w in self.torrent_row_store.values():
                 state = torrent_row_w.base_widget.cached_torrent["state"]
@@ -211,13 +218,60 @@ class TorrentList(uw.ListBox):
         # and update all torrents
         # this dictionary of torrents will only contain the data changed since last update
         for torrent_hash, torrent in torrents.items():
-            if torrent_hash not in self.torrent_row_store:
-                self.torrent_row_store[torrent_hash] = TorrentRow(
-                    torrent_list_box_w=self.torrent_list_box_w,
-                    torrent_hash=torrent_hash,
-                    torrent=torrent,
+            torrent_row_w = self.torrent_row_store.get(torrent_hash)
+            # add a Torrent Row for new torrents
+            if torrent_row_w is None:
+                torrent_row_w = uw.AttrMap(
+                    TorrentRow(
+                        torrent_list_box_w=self.torrent_list_box_w,
+                        torrent_hash=torrent_hash,
+                        torrent=torrent,
+                    ),
+                    attr_map=self.color_scheme(torrent),
+                    focus_map="selected",
                 )
-            self.torrent_row_store[torrent_hash].update(torrent)
+                self.torrent_row_store[torrent_hash] = torrent_row_w
+            else:
+                # check if row's current color scheme needs to be updated
+                # note: torrent will only contain the "state" key if it changed
+                curr_attr = torrent_row_w.attr_map.get(None)
+                new_attr = self.color_scheme(torrent)
+                if new_attr and curr_attr != new_attr:
+                    torrent_row_w.attr_map = {None: new_attr}
+            # finally update the data for the torrent row
+            torrent_row_w.base_widget.update(torrent)
+
+    @staticmethod
+    def color_scheme(torrent: dict):
+        # TODO: move to config
+        attr_map = {
+            # Downloading
+            "downloading": "dark green on default",
+            "forcedDL": "dark green on default",
+            "forcedMetaDL": "dark green on default",
+            "metaDL": "dark green on default",
+            "stalledDL": "dark green on default",
+            # Explicitly or implicitly paused
+            "pausedDL": "dark cyan on default",
+            "checkingDL": "dark cyan on default",
+            "checkingUP": "dark cyan on default",
+            "queuedDL": "dark cyan on default",
+            "queuedUP": "dark cyan on default",
+            "allocating": "dark cyan on default",
+            "moving": "dark cyan on default",
+            "queuedForChecking": "dark cyan on default",
+            "checkingResumeData": "dark cyan on default",
+            # Errored
+            "error": "light red on default",
+            "missingfiles": "light red on default",
+            # Seeding
+            "uploading": "dark blue on default",
+            "stalledUP": "dark blue on default",
+            "forcedUP": "dark blue on default",
+            # Complete
+            "pausedUP": "dark magenta on default",
+        }
+        return attr_map.get(torrent.get("state"), "")
 
     def resize(self):
         """
@@ -231,7 +285,7 @@ class TorrentList(uw.ListBox):
         # torrent info width with graphic progress bar: 115
 
         name_list = [
-            torrent_row_w.cached_torrent["name"]
+            torrent_row_w.base_widget.cached_torrent["name"]
             for torrent_row_w in self.torrent_row_store.values()
         ]
         if name_list:
@@ -240,7 +294,7 @@ class TorrentList(uw.ListBox):
                 max(map(len, name_list)),
             )
             for torrent_row_w in self.torrent_row_store.values():
-                torrent_row_w.resize_name_len(max_name_len)
+                torrent_row_w.base_widget.resize_name_len(max_name_len)
         else:
             max_name_len = 50
 
@@ -248,11 +302,11 @@ class TorrentList(uw.ListBox):
             for torrent_row_w in self.torrent_row_store.values():
                 # resize torrent name to 0 (effectively hiding it)
                 #  name keeps resetting each time info is updated
-                torrent_row_w.resize_name_len(0)
+                torrent_row_w.base_widget.resize_name_len(0)
                 if torrent_row_w.base_widget.current_sizing != "narrow":
                     # logger.info("Resizing %s to narrow" % torrent_row_w.base_widget.cached_torrent.name)
                     # ensure we're using the pb text
-                    torrent_row_w.swap_pb_bar_for_pb_text()
+                    torrent_row_w.base_widget.swap_pb_bar_for_pb_text()
                     # insert a blank space
                     torrent_row_w.base_widget.torrent_row_columns_w.base_widget.contents.insert(
                         0,
@@ -269,7 +323,11 @@ class TorrentList(uw.ListBox):
                     torrent_row_w.base_widget.contents.insert(
                         0,
                         (
-                            uw.Padding(uw.Text(torrent_row_w.cached_torrent["name"])),
+                            uw.Padding(
+                                uw.Text(
+                                    torrent_row_w.base_widget.cached_torrent["name"]
+                                )
+                            ),
                             ("pack", None),
                         ),
                     )
@@ -284,8 +342,8 @@ class TorrentList(uw.ListBox):
                         )
                         torrent_row_w.base_widget.contents.pop(0)
                     # logger.info("Resizing %s to pb text" % torrent_row_w.base_widget.cached_torrent.name)
-                    torrent_row_w.swap_pb_bar_for_pb_text()
-                    torrent_row_w.base_widget.current_sizing = "pb_text"
+                    torrent_row_w.base_widget.swap_pb_bar_for_pb_text()
+                    torrent_row_w.base_widget.base_widget.current_sizing = "pb_text"
 
         else:
             for torrent_row_w in self.torrent_row_store.values():
@@ -296,7 +354,7 @@ class TorrentList(uw.ListBox):
                         )
                         torrent_row_w.base_widget.contents.pop(0)
                     # logger.info("Resizing %s to pb bar" % torrent_row_w.base_widget.cached_torrent.name)
-                    torrent_row_w.swap_pb_text_for_pb_bar()
+                    torrent_row_w.base_widget.swap_pb_text_for_pb_bar()
                     torrent_row_w.base_widget.current_sizing = "pb_bar"
 
 
@@ -318,24 +376,8 @@ class TorrentRow(uw.Pile):
         # TODO: stop caching the torrent
         self.cached_torrent = torrent
 
-        # color based on state
-        # TODO: move to config
-        state = STATE_MAP_FOR_DISPLAY.get(torrent["state"], "")
-        if state in ["Downloading", "Queued", "Stalled"]:
-            attr = "dark green on default"
-        elif state == "Paused":
-            attr = "dark cyan on default"
-        elif state in ["Completed", "[F] Seeding", "Seeding"]:
-            attr = "dark blue on default"
-        elif state == "Error":
-            attr = "light red on default"
-        else:
-            attr = ""
-
-        # build and populate new torrent row
-        self.torrent_row_columns_w = uw.AttrMap(
-            w=TorrentRowColumns(), attr_map=attr, focus_map="selected"
-        )
+        # build empty Torrent Row
+        self.torrent_row_columns_w = TorrentRowColumns()
         # store hash
         self.set_torrent_hash(torrent_hash)
         # build row widget
@@ -469,21 +511,21 @@ class TorrentRowColumns(uw.Columns):
         )
 
         def format_dl_speed(v):
-            return f"{natural_file_size(v, gnu=True):>6}\u25BC"
+            return natural_file_size(v, gnu=True).rjust(6) + DOWN_TRIANGLE
 
         self.dl_speed_w = val_cont(
             name="dlspeed", raw_value=0, format_func=format_dl_speed
         )
 
         def format_up_speed(v):
-            return "%s%s" % (natural_file_size(v, gnu=True).rjust(6), "\u25B2")
+            return natural_file_size(v, gnu=True).rjust(6) + UP_TRIANGLE
 
         self.up_speed_w = val_cont(
             name="upspeed", raw_value=0, format_func=format_up_speed
         )
 
         def format_amt_uploaded(v):
-            return "%s%s" % (natural_file_size(v, gnu=True).rjust(6), "\u21D1")
+            return natural_file_size(v, gnu=True).rjust(6) + UP_ARROW
 
         self.amt_uploaded_w = val_cont(
             name="uploaded", raw_value=0, format_func=format_amt_uploaded
@@ -509,10 +551,12 @@ class TorrentRowColumns(uw.Columns):
         )
 
         def format_eta(v):
-            eta = pretty_time_delta(seconds=v) if v < 8640000 else "\u221E"
+            eta = pretty_time_delta(seconds=v) if v < SECS_INFINITY else INFINITY
             return f"ETA {eta}".ljust(6)
 
-        self.eta_w = val_cont(name="eta", raw_value=8640000, format_func=format_eta)
+        self.eta_w = val_cont(
+            name="eta", raw_value=SECS_INFINITY, format_func=format_eta
+        )
 
         def format_category(v):
             return str(v)
