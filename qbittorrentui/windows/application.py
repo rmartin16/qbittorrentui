@@ -4,6 +4,8 @@ from time import time
 import urwid as uw
 
 from qbittorrentui.config import APPLICATION_NAME
+from qbittorrentui.config import DOWN_TRIANGLE
+from qbittorrentui.config import UP_TRIANGLE
 from qbittorrentui.config import config
 from qbittorrentui.connector import ConnectorError
 from qbittorrentui.connector import LoginFailed
@@ -114,14 +116,14 @@ class AppStatusBar(uw.Columns):
         """ Right column => <dl rate>⯆ [<dl limit>] (<dl size>) <up rate>⯅ [<up limit>] (<up size>) """
         # note: have to use unicode codes to avoid chars with too many bytes...urwid doesn't handle those well
         # <dl rate>⯆
-        dl_up_text = f"{natural_file_size(server_state.get('dl_info_speed', 0), gnu=True).rjust(6)}/s\u25BC"
+        dl_up_text = f"{natural_file_size(server_state.get('dl_info_speed', 0), gnu=True).rjust(6)}/s{DOWN_TRIANGLE}"
         # [<dl limit>]
         if server_state.get("dl_rate_limit", None):
             dl_up_text = f"{dl_up_text} [{natural_file_size(server_state.get('dl_rate_limit', 0),gnu=True)}/s]"
         # (<dl size>)
         dl_up_text = f"{dl_up_text} ({natural_file_size(server_state.get('dl_info_data', 0), gnu=True)})"
         # <up rate>⯅
-        dl_up_text = f"{dl_up_text} {natural_file_size(server_state.get('up_info_speed', 0), gnu=True).rjust(6)}/s\u25B2"
+        dl_up_text = f"{dl_up_text} {natural_file_size(server_state.get('up_info_speed', 0), gnu=True).rjust(6)}/s{UP_TRIANGLE}"
         # [<up limit>]
         if server_state.get("up_rate_limit", None):
             dl_up_text = f"{dl_up_text} [{natural_file_size(server_state.get('up_rate_limit', 0),gnu=True)}/s]"
