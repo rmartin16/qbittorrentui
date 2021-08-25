@@ -1,25 +1,26 @@
-import urwid as uw
 import logging
-from time import time
+from time import sleep, time
+
+import panwid
+import urwid as uw
 
 from qbittorrentui._vendored.attrdict import AttrDict
-import panwid
-from qbittorrentui.windows.torrent import TorrentWindow
-from qbittorrentui.debug import log_keypress
-from qbittorrentui.debug import log_timing
-from qbittorrentui.config import config
 from qbittorrentui.config import STATE_MAP_FOR_DISPLAY
 from qbittorrentui.config import TORRENT_LIST_FILTERING_STATE_MAP
+from qbittorrentui.config import config
+from qbittorrentui.connector import Connector
+from qbittorrentui.debug import log_keypress
+from qbittorrentui.debug import log_timing
+from qbittorrentui.events import initialize_torrent_list
+from qbittorrentui.events import refresh_torrent_list_now
+from qbittorrentui.events import server_torrents_changed
+from qbittorrentui.events import update_torrent_list_now
+from qbittorrentui.formatters import natural_file_size
+from qbittorrentui.formatters import pretty_time_delta
 from qbittorrentui.misc_widgets import ButtonWithoutCursor
 from qbittorrentui.misc_widgets import DownloadProgressBar
 from qbittorrentui.misc_widgets import SelectableText
-from qbittorrentui.connector import Connector
-from qbittorrentui.formatters import natural_file_size
-from qbittorrentui.formatters import pretty_time_delta
-from qbittorrentui.events import refresh_torrent_list_now
-from qbittorrentui.events import update_torrent_list_now
-from qbittorrentui.events import initialize_torrent_list
-from qbittorrentui.events import server_torrents_changed
+from qbittorrentui.windows.torrent import TorrentWindow
 
 logger = logging.getLogger(__name__)
 
@@ -45,7 +46,7 @@ class TorrentListWindow(uw.Pile):
         pile = [
             (1, self.torrent_tabs_w),
             (1, uw.Filler(uw.Divider())),
-            self.torrent_list_w
+            self.torrent_list_w,
         ]
 
         # initialize torrent list window
@@ -58,8 +59,7 @@ class TorrentListWindow(uw.Pile):
     def width(self):
         if self._width:
             return self._width
-        else:
-            return self.main.ui.get_cols_rows()[1]
+        return self.main.ui.get_cols_rows()[1]
 
     def render(self, size, focus=False):
         # catch screen resize
@@ -67,23 +67,24 @@ class TorrentListWindow(uw.Pile):
         if self._width != size[0]:
             self._width = size[0]
             # call to refresh_torrent_list on screen re-sizes
-            refresh_torrent_list_now.send('torrent list render')
+            refresh_torrent_list_now.send("torrent list render")
         ret = super(TorrentListWindow, self).render(size, focus)
-        log_timing(logger, "Rendering", self, 'render', start_time)
+        assert log_timing(logger, "Rendering", self, "render", start_time)
         return ret
 
     def keypress(self, size, key):
         log_keypress(logger, self, key)
         key = super(TorrentListWindow, self).keypress(size, key)
-        if key in ['a', 'A']:
-            self.main.loop.widget = uw.Overlay(top_w=uw.LineBox(TorrentAddDialog(self.main)),
-                                               bottom_w=self.main.app_window,
-                                               align=uw.CENTER,
-                                               valign=uw.MIDDLE,
-                                               width=(uw.RELATIVE, 50),
-                                               height=(uw.RELATIVE, 50),
-                                               min_width=20
-                                               )
+        if key in ["a", "A"]:
+            self.main.loop.widget = uw.Overlay(
+                top_w=uw.LineBox(TorrentAddDialog(self.main)),
+                bottom_w=self.main.app_window,
+                align=uw.CENTER,
+                valign=uw.MIDDLE,
+                width=(uw.RELATIVE, 50),
+                height=(uw.RELATIVE, 50),
+                min_width=20,
+            )
         return key
 
     def torrent_list_init(self, sender):
@@ -92,7 +93,9 @@ class TorrentListWindow(uw.Pile):
         refresh_torrent_list_now.connect(receiver=self.refresh_torrent_list)
         update_torrent_list_now.send("initialization")
 
-    def update_torrent_list(self, sender, full_update=False, torrents=None, torrents_removed=None):
+    def update_torrent_list(
+        self, sender, full_update=False, torrents=None, torrents_removed=None
+    ):
         """
         Update torrents with new data and refresh_torrent_list window.
 
@@ -104,15 +107,17 @@ class TorrentListWindow(uw.Pile):
         """
         start_time = time()
 
-        if torrents is None:
-            torrents = dict()
-        if torrents_removed is None:
-            torrents_removed = dict()
+        torrents = torrents or {}
+        torrents_removed = torrents_removed or {}
 
         # this dictionary of torrents will only contain the data changed since last update...unless full update
-        self.torrent_list_w.update(torrents=torrents, torrents_removed=torrents_removed, full_update=full_update)
+        self.torrent_list_w.update(
+            torrents=torrents,
+            torrents_removed=torrents_removed,
+            full_update=full_update,
+        )
 
-        log_timing(logger, "Updating", self, sender, start_time)
+        assert log_timing(logger, "Updating", self, sender, start_time)
 
         self.refresh_torrent_list(sender)
 
@@ -132,21 +137,27 @@ class TorrentListWindow(uw.Pile):
         self.torrent_list_w.resize()
 
         # put the relevant torrents in the walker
-        self.torrent_list_w.apply_torrent_list_filter(status_filter=self.torrent_tabs_w.get_selected_tab_name())
+        self.torrent_list_w.apply_torrent_list_filter(
+            status_filter=self.torrent_tabs_w.get_selected_tab_name()
+        )
 
         # re-focus same torrent if it still exists
-        self.torrent_list_w.set_torrent_list_focus("torrent list refresh", torrent_hash=torrent_hash_in_focus)
+        self.torrent_list_w.set_torrent_list_focus(
+            "torrent list refresh", torrent_hash=torrent_hash_in_focus
+        )
 
-        log_timing(logger, "Refreshing", self, sender, start_time)
+        assert log_timing(logger, "Refreshing", self, sender, start_time)
 
 
 class TorrentList(uw.ListBox):
     def __init__(self, torrent_list_box):
-        super(TorrentList, self).__init__(uw.SimpleFocusListWalker([uw.Text("Loading...")]))
+        super(TorrentList, self).__init__(
+            uw.SimpleFocusListWalker([uw.Text("Loading...")])
+        )
         # currently needed for resizing and creating TorrentRows
         self.torrent_list_box_w = torrent_list_box
 
-        self.torrent_row_store = dict()
+        self.torrent_row_store = {}
         """master torrent row widget list of all torrents"""
 
     def keypress(self, size, key):
@@ -179,9 +190,9 @@ class TorrentList(uw.ListBox):
 
     def apply_torrent_list_filter(self, status_filter: str):
         filtered_list = list()
-        if status_filter != 'all':
+        if status_filter != "all":
             for torrent_row_w in self.torrent_row_store.values():
-                state = torrent_row_w.base_widget.cached_torrent['state']
+                state = torrent_row_w.base_widget.cached_torrent["state"]
                 if state in TORRENT_LIST_FILTERING_STATE_MAP[status_filter]:
                     filtered_list.append(torrent_row_w)
         else:
@@ -194,16 +205,18 @@ class TorrentList(uw.ListBox):
             self.torrent_row_store.pop(torrent_hash)
 
         if full_update:
-            self.torrent_row_store = dict()
+            self.torrent_row_store = {}
 
         # add any new torrents added on the server
         # and update all torrents
         # this dictionary of torrents will only contain the data changed since last update
         for torrent_hash, torrent in torrents.items():
             if torrent_hash not in self.torrent_row_store:
-                self.torrent_row_store[torrent_hash] = TorrentRow(torrent_list_box_w=self.torrent_list_box_w,
-                                                                  torrent_hash=torrent_hash,
-                                                                  torrent=torrent)
+                self.torrent_row_store[torrent_hash] = TorrentRow(
+                    torrent_list_box_w=self.torrent_list_box_w,
+                    torrent_hash=torrent_hash,
+                    torrent=torrent,
+                )
             self.torrent_row_store[torrent_hash].update(torrent)
 
     def resize(self):
@@ -217,9 +230,15 @@ class TorrentList(uw.ListBox):
         """
         # torrent info width with graphic progress bar: 115
 
-        name_list = [torrent_row_w.cached_torrent['name'] for torrent_row_w in self.torrent_row_store.values()]
+        name_list = [
+            torrent_row_w.cached_torrent["name"]
+            for torrent_row_w in self.torrent_row_store.values()
+        ]
         if name_list:
-            max_name_len = min(int(config.get("TORRENT_LIST_MAX_TORRENT_NAME_LENGTH")), max(map(len, name_list)))
+            max_name_len = min(
+                int(config.get("TORRENT_LIST_MAX_TORRENT_NAME_LENGTH")),
+                max(map(len, name_list)),
+            )
             for torrent_row_w in self.torrent_row_store.values():
                 torrent_row_w.resize_name_len(max_name_len)
         else:
@@ -239,41 +258,46 @@ class TorrentList(uw.ListBox):
                         0,
                         (
                             TorrentRowColumns.TorrentInfoColumnValueContainer(
-                                name="blank",
-                                raw_value=" ",
-                                format_func=str),
-                            torrent_row_w.base_widget.torrent_row_columns_w.base_widget.options(uw.PACK,
-                                                                                                None,
-                                                                                                False)
-                        )
+                                name="blank", raw_value=" ", format_func=str
+                            ),
+                            torrent_row_w.base_widget.torrent_row_columns_w.base_widget.options(
+                                uw.PACK, None, False
+                            ),
+                        ),
                     )
                     # add the torrent name as a new widget in the Pile for the TorrentRow
                     torrent_row_w.base_widget.contents.insert(
                         0,
-                        (uw.Padding(uw.Text(torrent_row_w.cached_torrent['name'])),
-                         ('pack', None))
+                        (
+                            uw.Padding(uw.Text(torrent_row_w.cached_torrent["name"])),
+                            ("pack", None),
+                        ),
                     )
                     torrent_row_w.base_widget.current_sizing = "narrow"
 
         elif self.torrent_list_box_w.width < (max_name_len + 115):
             for torrent_row_w in self.torrent_row_store.values():
-                if torrent_row_w.base_widget.current_sizing != 'pb_text':
-                    if torrent_row_w.base_widget.current_sizing == 'narrow':
-                        torrent_row_w.base_widget.torrent_row_columns_w.base_widget.contents.pop(0)
+                if torrent_row_w.base_widget.current_sizing != "pb_text":
+                    if torrent_row_w.base_widget.current_sizing == "narrow":
+                        torrent_row_w.base_widget.torrent_row_columns_w.base_widget.contents.pop(
+                            0
+                        )
                         torrent_row_w.base_widget.contents.pop(0)
                     # logger.info("Resizing %s to pb text" % torrent_row_w.base_widget.cached_torrent.name)
                     torrent_row_w.swap_pb_bar_for_pb_text()
-                    torrent_row_w.base_widget.current_sizing = 'pb_text'
+                    torrent_row_w.base_widget.current_sizing = "pb_text"
 
         else:
             for torrent_row_w in self.torrent_row_store.values():
-                if torrent_row_w.base_widget.current_sizing != 'pb_bar':
-                    if torrent_row_w.base_widget.current_sizing == 'narrow':
-                        torrent_row_w.base_widget.torrent_row_columns_w.base_widget.contents.pop(0)
+                if torrent_row_w.base_widget.current_sizing != "pb_bar":
+                    if torrent_row_w.base_widget.current_sizing == "narrow":
+                        torrent_row_w.base_widget.torrent_row_columns_w.base_widget.contents.pop(
+                            0
+                        )
                         torrent_row_w.base_widget.contents.pop(0)
                     # logger.info("Resizing %s to pb bar" % torrent_row_w.base_widget.cached_torrent.name)
                     torrent_row_w.swap_pb_text_for_pb_bar()
-                    torrent_row_w.base_widget.current_sizing = 'pb_bar'
+                    torrent_row_w.base_widget.current_sizing = "pb_bar"
 
 
 class TorrentRow(uw.Pile):
@@ -296,23 +320,22 @@ class TorrentRow(uw.Pile):
 
         # color based on state
         # TODO: move to config
-        state = STATE_MAP_FOR_DISPLAY.get(torrent['state'], '')
+        state = STATE_MAP_FOR_DISPLAY.get(torrent["state"], "")
         if state in ["Downloading", "Queued", "Stalled"]:
-            attr = 'dark green on default'
+            attr = "dark green on default"
         elif state == "Paused":
-            attr = 'dark cyan on default'
-        elif state in ["Completed", '[F] Seeding', 'Seeding']:
-            attr = 'dark blue on default'
-        elif state == 'Error':
-            attr = 'light red on default'
+            attr = "dark cyan on default"
+        elif state in ["Completed", "[F] Seeding", "Seeding"]:
+            attr = "dark blue on default"
+        elif state == "Error":
+            attr = "light red on default"
         else:
-            attr = ''
+            attr = ""
 
         # build and populate new torrent row
-        self.torrent_row_columns_w = uw.AttrMap(w=TorrentRowColumns(),
-                                                attr_map=attr,
-                                                focus_map='selected'
-                                                )
+        self.torrent_row_columns_w = uw.AttrMap(
+            w=TorrentRowColumns(), attr_map=attr, focus_map="selected"
+        )
         # store hash
         self.set_torrent_hash(torrent_hash)
         # build row widget
@@ -324,32 +347,40 @@ class TorrentRow(uw.Pile):
 
     def resize_name_len(self, name_length: int):
         for i, w in enumerate(self.torrent_row_columns_w.base_widget.contents):
-            if hasattr(w[0], 'name'):
-                if w[0].name == 'name':
+            if hasattr(w[0], "name"):
+                if w[0].name == "name":
                     self.torrent_row_columns_w.base_widget.contents[i] = (
-                        w[0], self.torrent_row_columns_w.base_widget.options(w[1][0], name_length, w[1][2]))
+                        w[0],
+                        self.torrent_row_columns_w.base_widget.options(
+                            w[1][0], name_length, w[1][2]
+                        ),
+                    )
         self.torrent_row_columns_w.base_widget.name_len = name_length
 
     def swap_pb_bar_for_pb_text(self):
         for i, w in enumerate(self.torrent_row_columns_w.base_widget.contents):
-            if hasattr(w[0], 'name'):
-                if w[0].name == 'pb':
+            if hasattr(w[0], "name"):
+                if w[0].name == "pb":
                     self.torrent_row_columns_w.base_widget.contents[i] = (
                         self.torrent_row_columns_w.base_widget.pb_text_w,
-                        self.torrent_row_columns_w.base_widget.options(uw.GIVEN,
-                                                                       len(self.torrent_row_columns_w.base_widget.pb_text_w),
-                                                                       False)
+                        self.torrent_row_columns_w.base_widget.options(
+                            uw.GIVEN,
+                            len(self.torrent_row_columns_w.base_widget.pb_text_w),
+                            False,
+                        ),
                     )
 
     def swap_pb_text_for_pb_bar(self):
         for i, w in enumerate(self.torrent_row_columns_w.base_widget.contents):
-            if hasattr(w[0], 'name'):
-                if w[0].name == 'pb_text':
+            if hasattr(w[0], "name"):
+                if w[0].name == "pb_text":
                     self.torrent_row_columns_w.base_widget.contents[i] = (
                         self.torrent_row_columns_w.base_widget.pb_w,
-                        self.torrent_row_columns_w.base_widget.options(uw.GIVEN,
-                                                                       int(config.get("TORRENT_LIST_PROGRESS_BAR_LENGTH")),
-                                                                       False)
+                        self.torrent_row_columns_w.base_widget.options(
+                            uw.GIVEN,
+                            int(config.get("TORRENT_LIST_PROGRESS_BAR_LENGTH")),
+                            False,
+                        ),
                     )
 
     def set_torrent_hash(self, torrent_hash):
@@ -359,44 +390,49 @@ class TorrentRow(uw.Pile):
         return self._hash
 
     def open_torrent_options_window(self):
-        torrent_name = self.cached_torrent.get('name', "")
+        torrent_name = self.cached_torrent.get("name", "")
 
         self.main.torrent_options_window = uw.Overlay(
             top_w=uw.LineBox(
-                TorrentOptionsDialog(torrent_list_box_w=self.torrent_list_box_w,
-                                     torrent_hash=self.get_torrent_hash(),
-                                     torrent=self.cached_torrent),
-                title=torrent_name
+                TorrentOptionsDialog(
+                    torrent_list_box_w=self.torrent_list_box_w,
+                    torrent_hash=self.get_torrent_hash(),
+                    torrent=self.cached_torrent,
+                ),
+                title=torrent_name,
             ),
             bottom_w=self.torrent_list_box_w.main.app_window,
             align=uw.CENTER,
             width=(uw.RELATIVE, 50),
             valign=uw.MIDDLE,
             height=25,
-            min_width=75)
+            min_width=75,
+        )
 
         self.main.loop.widget = self.main.torrent_options_window
 
     def open_torrent_window(self):
-        torrent_window = TorrentWindow(self.main,
-                                       torrent_hash=self.get_torrent_hash(),
-                                       torrent=self.cached_torrent,
-                                       client=self.torrent_list_box_w.client,
-                                       )
-        header_w = uw.Pile([uw.Divider(),
-                            uw.Text(self.cached_torrent['name'], align=uw.CENTER, wrap=uw.CLIP),
-                            ]
-                           )
-        frame_w = uw.Frame(body=torrent_window,
-                           header=header_w)
+        torrent_window = TorrentWindow(
+            self.main,
+            torrent_hash=self.get_torrent_hash(),
+            torrent=self.cached_torrent,
+            client=self.torrent_list_box_w.client,
+        )
+        header_w = uw.Pile(
+            [
+                uw.Divider(),
+                uw.Text(self.cached_torrent["name"], align=uw.CENTER, wrap=uw.CLIP),
+            ]
+        )
+        frame_w = uw.Frame(body=torrent_window, header=header_w)
         self.main.app_window.body = frame_w
 
     def keypress(self, size, key):
         log_keypress(logger, self, key)
-        if key == 'enter':
+        if key == "enter":
             self.open_torrent_options_window()
             return None
-        if key in ['right']:
+        if key in ["right"]:
             self.open_torrent_window()
             return None
         return key
@@ -409,45 +445,81 @@ class TorrentRowColumns(uw.Columns):
         val_cont = TorrentRowColumns.TorrentInfoColumnValueContainer
         pb_cont = TorrentRowColumns.TorrentInfoColumnPBContainer
 
-        def format_title(v): return str(v).ljust(int(config.get("TORRENT_LIST_MAX_TORRENT_NAME_LENGTH")))
-        self.name_w = val_cont(name='name', raw_value="", format_func=format_title)
+        def format_title(v):
+            return str(v).ljust(int(config.get("TORRENT_LIST_MAX_TORRENT_NAME_LENGTH")))
+
+        self.name_w = val_cont(name="name", raw_value="", format_func=format_title)
 
         def format_state(v):
-            return (STATE_MAP_FOR_DISPLAY.get(v, v)).ljust(12)
-        self.state_w = val_cont(name='state', raw_value="", format_func=format_state)
+            return STATE_MAP_FOR_DISPLAY.get(v, v).ljust(12)
 
-        def format_size(v): return natural_file_size(v, gnu=True).rjust(6)
-        self.size_w = val_cont(name='size', raw_value=0, format_func=format_size)
+        self.state_w = val_cont(name="state", raw_value="", format_func=format_state)
+
+        def format_size(v):
+            return natural_file_size(v, gnu=True).rjust(6)
+
+        self.size_w = val_cont(name="size", raw_value=0, format_func=format_size)
 
         def format_pb(v: DownloadProgressBar):
             return v.get_percentage().rjust(4)
-        self.pb_w = pb_cont(name='pb', current=0)
-        self.pb_text_w = val_cont(name='pb_text', raw_value=self.pb_w, format_func=format_pb)
 
-        def format_dl_speed(v): return "%s%s" % (natural_file_size(v, gnu=True).rjust(6), '\u25BC')
-        self.dl_speed_w = val_cont(name='dlspeed', raw_value=0, format_func=format_dl_speed)
+        self.pb_w = pb_cont(name="pb", current=0)
+        self.pb_text_w = val_cont(
+            name="pb_text", raw_value=self.pb_w, format_func=format_pb
+        )
 
-        def format_up_speed(v): return "%s%s" % (natural_file_size(v, gnu=True).rjust(6), '\u25B2')
-        self.up_speed_w = val_cont(name='upspeed', raw_value=0, format_func=format_up_speed)
+        def format_dl_speed(v):
+            return f"{natural_file_size(v, gnu=True):>6}\u25BC"
 
-        def format_amt_uploaded(v): return "%s%s" % (natural_file_size(v, gnu=True).rjust(6), '\u21D1')
-        self.amt_uploaded_w = val_cont(name='uploaded', raw_value=0, format_func=format_amt_uploaded)
+        self.dl_speed_w = val_cont(
+            name="dlspeed", raw_value=0, format_func=format_dl_speed
+        )
 
-        def format_ratio(v): return "R %.2f" % v
-        self.ratio_w = val_cont(name='ratio', raw_value=0, format_func=format_ratio)
+        def format_up_speed(v):
+            return "%s%s" % (natural_file_size(v, gnu=True).rjust(6), "\u25B2")
 
-        def format_leech_num(v): return "L %3d" % v
-        self.leech_num_w = val_cont(name='num_leechs', raw_value=0, format_func=format_leech_num)
+        self.up_speed_w = val_cont(
+            name="upspeed", raw_value=0, format_func=format_up_speed
+        )
 
-        def format_seed_num(v): return "S %3d" % v
-        self.seed_num_w = val_cont(name='num_seeds', raw_value=0, format_func=format_seed_num)
+        def format_amt_uploaded(v):
+            return "%s%s" % (natural_file_size(v, gnu=True).rjust(6), "\u21D1")
+
+        self.amt_uploaded_w = val_cont(
+            name="uploaded", raw_value=0, format_func=format_amt_uploaded
+        )
+
+        def format_ratio(v):
+            return f"R {v:.2f}"
+
+        self.ratio_w = val_cont(name="ratio", raw_value=0, format_func=format_ratio)
+
+        def format_leech_num(v):
+            return f"L {v:3d}"
+
+        self.leech_num_w = val_cont(
+            name="num_leechs", raw_value=0, format_func=format_leech_num
+        )
+
+        def format_seed_num(v):
+            return f"S {v:3d}"
+
+        self.seed_num_w = val_cont(
+            name="num_seeds", raw_value=0, format_func=format_seed_num
+        )
 
         def format_eta(v):
-            return "ETA %s" % (pretty_time_delta(seconds=v) if v < 8640000 else '\u221E').ljust(6)
-        self.eta_w = val_cont(name='eta', raw_value=8640000, format_func=format_eta)
+            eta = pretty_time_delta(seconds=v) if v < 8640000 else "\u221E"
+            return f"ETA {eta}".ljust(6)
 
-        def format_category(v): return str(v)
-        self.category_w = val_cont(name='category', raw_value="", format_func=format_category)
+        self.eta_w = val_cont(name="eta", raw_value=8640000, format_func=format_eta)
+
+        def format_category(v):
+            return str(v)
+
+        self.category_w = val_cont(
+            name="category", raw_value="", format_func=format_category
+        )
 
         self.pb_info_list = [
             # state
@@ -480,10 +552,13 @@ class TorrentRowColumns(uw.Columns):
         self.text_pb_info_list.pop(3)
         self.text_pb_info_list.insert(3, (len(self.pb_text_w), self.pb_text_w))
 
-        super(TorrentRowColumns, self).__init__(self.pb_full_info_list,
-                                                dividechars=1,
-                                                focus_column=None,
-                                                min_width=1, box_columns=None)
+        super(TorrentRowColumns, self).__init__(
+            self.pb_full_info_list,
+            dividechars=1,
+            focus_column=None,
+            min_width=1,
+            box_columns=None,
+        )
 
     def update(self, torrent: dict):
         for w in self.contents:
@@ -497,7 +572,9 @@ class TorrentRowColumns(uw.Columns):
 
     class TorrentInfoColumnValueContainer(SelectableText):
         def __init__(self, name, raw_value, format_func):
-            super(TorrentRowColumns.TorrentInfoColumnValueContainer, self).__init__("", wrap=uw.CLIP)
+            super(TorrentRowColumns.TorrentInfoColumnValueContainer, self).__init__(
+                "", wrap=uw.CLIP
+            )
 
             self.name = name
             self.format_func = format_func
@@ -518,7 +595,7 @@ class TorrentRowColumns(uw.Columns):
             self.set_text(self.format_func(v))
 
         def update(self, torrent: dict):
-            if self.name == 'blank':
+            if self.name == "blank":
                 pass
             elif self.name == "pb_text":
                 self._raw_value.update(torrent)
@@ -530,10 +607,12 @@ class TorrentRowColumns(uw.Columns):
     class TorrentInfoColumnPBContainer(DownloadProgressBar):
         def __init__(self, name, current, done=100):
             self.name = name
-            super(TorrentRowColumns.TorrentInfoColumnPBContainer, self).__init__('pg normal',
-                                                                                 'pg complete',
-                                                                                 current=current,
-                                                                                 done=done if done != 0 else 100)
+            super(TorrentRowColumns.TorrentInfoColumnPBContainer, self).__init__(
+                "pg normal",
+                "pg complete",
+                current=current,
+                done=done if done != 0 else 100,
+            )
 
         def __len__(self):
             return len(self.get_pb_text())
@@ -542,28 +621,36 @@ class TorrentRowColumns(uw.Columns):
             return self.get_percentage().rjust(4)
 
         def update(self, torrent: dict):
-            if 'completed' in torrent:
-                self.current = torrent['completed']
-            if 'size' in torrent:
-                self.done = torrent['size'] if torrent['size'] != 0 else 100
+            if "completed" in torrent:
+                self.current = torrent["completed"]
+            if "size" in torrent:
+                self.done = torrent["size"] if torrent["size"] != 0 else 100
 
 
 class TorrentListTabsColumns(uw.Columns):
     def __init__(self):
         torrent_tabs_list = []
         for i, tab_name in enumerate(
-                ["All", "Downloading", "Completed", "Paused", "Active", "Inactive", "Resumed"]):
+            [
+                "All",
+                "Downloading",
+                "Completed",
+                "Paused",
+                "Active",
+                "Inactive",
+                "Resumed",
+            ]
+        ):
             torrent_tabs_list.append(
                 uw.AttrMap(
-                    uw.Filler(
-                        SelectableText(tab_name,
-                                       align=uw.CENTER)),
+                    uw.Filler(SelectableText(tab_name, align=uw.CENTER)),
                     attr_map="selected" if i == 0 else "",
-                    focus_map='selected')
+                    focus_map="selected",
+                )
             )
-        super(TorrentListTabsColumns, self).__init__(widget_list=torrent_tabs_list,
-                                                     dividechars=0,
-                                                     focus_column=0)
+        super(TorrentListTabsColumns, self).__init__(
+            widget_list=torrent_tabs_list, dividechars=0, focus_column=0
+        )
 
     def get_selected_tab_name(self):
         """
@@ -587,9 +674,9 @@ class TorrentListTabsColumns(uw.Columns):
         :return:
         """
         if old_tab is not new_tab:
-            old_tab.set_attr_map({None: 'default'})
-            new_tab.set_attr_map({None: 'selected'})
-            refresh_torrent_list_now.send('torrents list tabs focus change')
+            old_tab.set_attr_map({None: "default"})
+            new_tab.set_attr_map({None: "selected"})
+            refresh_torrent_list_now.send("torrents list tabs focus change")
 
     def keypress(self, size, key):
         log_keypress(logger, self, key)
@@ -618,126 +705,206 @@ class TorrentOptionsDialog(uw.ListBox):
         categories["<no category>"] = "<no category>"
 
         self.original_location = self.torrent.save_path
-        self.location_w = uw.Edit(caption="Save path: ",
-                                  edit_text=self.original_location)
+        self.location_w = uw.Edit(
+            caption="Save path: ", edit_text=self.original_location
+        )
         self.original_name = self.torrent.name
-        self.rename_w = uw.Edit(caption="Rename: ",
-                                edit_text=self.original_name)
+        self.rename_w = uw.Edit(caption="Rename: ", edit_text=self.original_name)
         self.original_autotmm_state = self.torrent.auto_tmm
-        self.autotmm_w = uw.CheckBox("Automatic Torrent Management",
-                                     state=self.original_autotmm_state)
+        self.autotmm_w = uw.CheckBox(
+            "Automatic Torrent Management", state=self.original_autotmm_state
+        )
         self.original_super_seeding_state = self.torrent.super_seeding
-        self.super_seeding_w = uw.CheckBox("Super Seeding Mode",
-                                           state=self.original_super_seeding_state)
+        self.super_seeding_w = uw.CheckBox(
+            "Super Seeding Mode", state=self.original_super_seeding_state
+        )
         self.original_upload_rate_limit = self.torrent.up_limit
-        self.upload_rate_limit_w = uw.IntEdit(caption="Upload Rate Limit (Kib/s)  : ",
-                                              default=int(
-                                                  self.original_upload_rate_limit / 1024) if self.original_upload_rate_limit != -1 else "")
+        self.upload_rate_limit_w = uw.IntEdit(
+            caption="Upload Rate Limit (Kib/s)  : ",
+            default=int(self.original_upload_rate_limit / 1024)
+            if self.original_upload_rate_limit != -1
+            else "",
+        )
         self.original_download_rate_limit = self.torrent.dl_limit
-        self.download_rate_limit_w = uw.IntEdit(caption="Download Rate Limit (Kib/s): ",
-                                                default=int(
-                                                    self.original_download_rate_limit / 1024) if self.original_download_rate_limit != -1 else "")
+        self.download_rate_limit_w = uw.IntEdit(
+            caption="Download Rate Limit (Kib/s): ",
+            default=int(self.original_download_rate_limit / 1024)
+            if self.original_download_rate_limit != -1
+            else "",
+        )
         # TODO: accommodate share ratio and share time
         self.original_share_ratio = self.torrent.ratio_limit
-        self.share_ratio_dropdown_w = panwid.Dropdown(items=[("Global Limit", -2), ("Unlimited", -1), ("Specify", 0)],
-                                                      label="Share Ratio: ",
-                                                      default=self.torrent.ratio_limit if self.torrent.ratio_limit in [
-                                                          -2, -1] else 0)
+        self.share_ratio_dropdown_w = panwid.Dropdown(
+            items=[("Global Limit", -2), ("Unlimited", -1), ("Specify", 0)],
+            label="Share Ratio: ",
+            default=self.torrent.ratio_limit
+            if self.torrent.ratio_limit in [-2, -1]
+            else 0,
+        )
         if self.torrent.ratio_limit >= 0:
             self.original_share_ratio_percentage = int(self.torrent.ratio_limit * 100)
             self.original_share_minutes = self.torrent.seeding_time_limit
         else:
             self.original_share_ratio_percentage = None
             self.original_share_minutes = None
-        self.share_ratio_limit_w = uw.IntEdit(caption="Share ratio limit (%): ",
-                                              default=self.original_share_ratio_percentage)
-        self.share_ratio_minutes_w = uw.IntEdit(caption="Share ratio minutes: ", default=self.original_share_minutes)
-        self.original_category = self.torrent.category if self.torrent.category != "" else "<no category>"
-        self.category_w = panwid.Dropdown(items=categories,
-                                          label="Category",
-                                          default=self.original_category,
-                                          auto_complete=True)
+        self.share_ratio_limit_w = uw.IntEdit(
+            caption="Share ratio limit (%): ",
+            default=self.original_share_ratio_percentage,
+        )
+        self.share_ratio_minutes_w = uw.IntEdit(
+            caption="Share ratio minutes: ", default=self.original_share_minutes
+        )
+        self.original_category = (
+            self.torrent.category if self.torrent.category != "" else "<no category>"
+        )
+        self.category_w = panwid.Dropdown(
+            items=categories,
+            label="Category",
+            default=self.original_category,
+            auto_complete=True,
+        )
 
-        super(TorrentOptionsDialog, self).__init__(uw.SimpleFocusListWalker(
-            [
-                uw.Divider(),
-                uw.Columns(
-                    [
-                        uw.Padding(uw.Text('')),
-                        (10, uw.AttrMap(ButtonWithoutCursor("Resume",
-                                                            on_press=self.resume_torrent),
-                                        '', focus_map='selected')),
-                        (16, uw.AttrMap(ButtonWithoutCursor("Force Resume",
-                                                            on_press=self.force_resume_torrent),
-                                        '', focus_map='selected')),
-                        (9, uw.AttrMap(ButtonWithoutCursor("Pause",
-                                                           on_press=self.pause_torrent),
-                                       '', focus_map='selected')),
-                        uw.Padding(uw.Text('')),
-                    ],
-                    dividechars=2
-                ),
-                uw.Divider(),
-                uw.Columns(
-                    [
-                        uw.Padding(uw.Text('')),
-                        (10, uw.AttrMap(ButtonWithoutCursor("Delete",
-                                                            on_press=self.delete_torrent),
-                                        '', focus_map='selected')),
-                        (11, uw.AttrMap(ButtonWithoutCursor("Recheck",
-                                                            on_press=self.recheck_torrent),
-                                        '', focus_map='selected')),
-                        (14, uw.AttrMap(ButtonWithoutCursor("Reannounce",
-                                                            on_press=self.reannounce_torrent),
-                                        '', focus_map='selected')),
-                        uw.Padding(uw.Text('')),
-                    ],
-                    dividechars=2
-                ),
-                uw.Divider(),
-                self.location_w,
-                uw.Divider(),
-                self.rename_w,
-                uw.Divider(),
-                uw.Columns(
-                    [
-                        uw.Padding(uw.Text('')),
-                        (33, self.autotmm_w),
-                        (23, self.super_seeding_w),
-                        uw.Padding(uw.Text('')),
-                    ],
-                    dividechars=2
-                ),
-                uw.Divider(),
-                self.share_ratio_dropdown_w,
-                self.share_ratio_limit_w,
-                self.share_ratio_minutes_w,
-                uw.Divider(),
-                self.upload_rate_limit_w,
-                self.download_rate_limit_w,
-                uw.Divider(),
-                self.category_w,
-                uw.Divider(),
-                uw.Divider(),
-                uw.Columns(
-                    [
-                        uw.Padding(uw.Text('')),
-                        (6, uw.AttrMap(ButtonWithoutCursor("OK",
-                                                           on_press=self.apply_settings),
-                                       '', focus_map='selected')),
-                        (10, uw.AttrMap(ButtonWithoutCursor("Cancel",
-                                                            on_press=self.close_window),
-                                        '', focus_map='selected'))
-                    ],
-                    dividechars=2,
-                )
-            ]
-        ))
+        super(TorrentOptionsDialog, self).__init__(
+            uw.SimpleFocusListWalker(
+                [
+                    uw.Divider(),
+                    uw.Columns(
+                        [
+                            uw.Padding(uw.Text("")),
+                            (
+                                10,
+                                uw.AttrMap(
+                                    ButtonWithoutCursor(
+                                        "Resume", on_press=self.resume_torrent
+                                    ),
+                                    "",
+                                    focus_map="selected",
+                                ),
+                            ),
+                            (
+                                16,
+                                uw.AttrMap(
+                                    ButtonWithoutCursor(
+                                        "Force Resume",
+                                        on_press=self.force_resume_torrent,
+                                    ),
+                                    "",
+                                    focus_map="selected",
+                                ),
+                            ),
+                            (
+                                9,
+                                uw.AttrMap(
+                                    ButtonWithoutCursor(
+                                        "Pause", on_press=self.pause_torrent
+                                    ),
+                                    "",
+                                    focus_map="selected",
+                                ),
+                            ),
+                            uw.Padding(uw.Text("")),
+                        ],
+                        dividechars=2,
+                    ),
+                    uw.Divider(),
+                    uw.Columns(
+                        [
+                            uw.Padding(uw.Text("")),
+                            (
+                                10,
+                                uw.AttrMap(
+                                    ButtonWithoutCursor(
+                                        "Delete", on_press=self.delete_torrent
+                                    ),
+                                    "",
+                                    focus_map="selected",
+                                ),
+                            ),
+                            (
+                                11,
+                                uw.AttrMap(
+                                    ButtonWithoutCursor(
+                                        "Recheck", on_press=self.recheck_torrent
+                                    ),
+                                    "",
+                                    focus_map="selected",
+                                ),
+                            ),
+                            (
+                                14,
+                                uw.AttrMap(
+                                    ButtonWithoutCursor(
+                                        "Reannounce", on_press=self.reannounce_torrent
+                                    ),
+                                    "",
+                                    focus_map="selected",
+                                ),
+                            ),
+                            uw.Padding(uw.Text("")),
+                        ],
+                        dividechars=2,
+                    ),
+                    uw.Divider(),
+                    self.location_w,
+                    uw.Divider(),
+                    self.rename_w,
+                    uw.Divider(),
+                    uw.Columns(
+                        [
+                            uw.Padding(uw.Text("")),
+                            (33, self.autotmm_w),
+                            (23, self.super_seeding_w),
+                            uw.Padding(uw.Text("")),
+                        ],
+                        dividechars=2,
+                    ),
+                    uw.Divider(),
+                    self.share_ratio_dropdown_w,
+                    self.share_ratio_limit_w,
+                    self.share_ratio_minutes_w,
+                    uw.Divider(),
+                    self.upload_rate_limit_w,
+                    self.download_rate_limit_w,
+                    uw.Divider(),
+                    self.category_w,
+                    uw.Divider(),
+                    uw.Divider(),
+                    uw.Columns(
+                        [
+                            uw.Padding(uw.Text("")),
+                            (
+                                6,
+                                uw.AttrMap(
+                                    ButtonWithoutCursor(
+                                        "OK", on_press=self.apply_settings
+                                    ),
+                                    "",
+                                    focus_map="selected",
+                                ),
+                            ),
+                            (
+                                10,
+                                uw.AttrMap(
+                                    ButtonWithoutCursor(
+                                        "Cancel", on_press=self.close_window
+                                    ),
+                                    "",
+                                    focus_map="selected",
+                                ),
+                            ),
+                        ],
+                        dividechars=2,
+                    ),
+                ]
+            )
+        )
 
     def keypress(self, size, key):
         log_keypress(logger, self, key)
-        key = super(TorrentOptionsDialog, self).keypress(size, {"shift tab": "up", "tab": "down"}.get(key, key))
-        if key == 'esc':
+        key = super(TorrentOptionsDialog, self).keypress(
+            size, {"shift tab": "up", "tab": "down"}.get(key, key)
+        )
+        if key == "esc":
             self.close_window()
         return key
 
@@ -749,7 +916,9 @@ class TorrentOptionsDialog(uw.ListBox):
         new_super_seeding_state = self.super_seeding_w.get_state()
         new_share_ratio = self.share_ratio_dropdown_w.selected_value
         if self.share_ratio_limit_w.get_edit_text():
-            new_share_ratio_percentage = int(self.share_ratio_limit_w.get_edit_text()) / 100
+            new_share_ratio_percentage = (
+                int(self.share_ratio_limit_w.get_edit_text()) / 100
+            )
         else:
             new_share_ratio_percentage = self.original_share_ratio_percentage
         if self.share_ratio_minutes_w.get_edit_text():
@@ -761,51 +930,86 @@ class TorrentOptionsDialog(uw.ListBox):
         else:
             new_upload_rate_limit = self.original_upload_rate_limit
         if self.download_rate_limit_w.get_edit_text() != "":
-            new_download_rate_limit = int(self.download_rate_limit_w.get_edit_text()) * 1024
+            new_download_rate_limit = (
+                int(self.download_rate_limit_w.get_edit_text()) * 1024
+            )
         else:
             new_download_rate_limit = self.original_download_rate_limit
         new_category = self.category_w.selected_label
 
         if new_location != self.original_location:
-            logger.info("Setting new location: %s (%s)" % (new_location, self.torrent_hash))
-            self.client.torrents_set_location(location=new_location, torrent_ids=self.torrent_hash)
+            logger.info(
+                "Setting new location: %s (%s)", new_location, self.torrent_hash
+            )
+            self.client.torrents_set_location(
+                location=new_location, torrent_ids=self.torrent_hash
+            )
 
         if new_name != self.original_name:
-            logger.info("Setting new name: %s (%s)" % (new_name, self.torrent_hash))
+            logger.info("Setting new name: %s (%s)", new_name, self.torrent_hash)
             self.client.torrent_rename(new_name=new_name, torrent_id=self.torrent_hash)
 
         if new_autotmm_state is not self.original_autotmm_state:
-            logger.info("Setting Auto TMM: %s (%s)" % (new_autotmm_state, self.torrent_hash))
-            self.client.torrents_set_automatic_torrent_management(enable=new_autotmm_state,
-                                                                  torrent_ids=self.torrent_hash)
+            logger.info(
+                "Setting Auto TMM: %s (%s)", new_autotmm_state, self.torrent_hash
+            )
+            self.client.torrents_set_automatic_torrent_management(
+                enable=new_autotmm_state, torrent_ids=self.torrent_hash
+            )
 
         if new_super_seeding_state is not self.original_super_seeding_state:
-            logger.info("Setting super seeding: %s (%s)" % (new_super_seeding_state, self.torrent_hash))
-            self.client.torrents_set_super_seeding(enable=new_super_seeding_state, torrent_ids=self.torrent_hash)
+            logger.info(
+                "Setting super seeding: %s (%s)",
+                new_super_seeding_state,
+                self.torrent_hash,
+            )
+            self.client.torrents_set_super_seeding(
+                enable=new_super_seeding_state, torrent_ids=self.torrent_hash
+            )
 
         if new_upload_rate_limit != self.original_upload_rate_limit:
-            logger.info("Setting new upload rate: %s (%s)" % (new_upload_rate_limit, self.torrent_hash))
-            self.client.torrents_set_upload_limit(limit=new_upload_rate_limit, torrent_ids=self.torrent_hash)
+            logger.info(
+                "Setting new upload rate: %s (%s)",
+                new_upload_rate_limit,
+                self.torrent_hash,
+            )
+            self.client.torrents_set_upload_limit(
+                limit=new_upload_rate_limit, torrent_ids=self.torrent_hash
+            )
 
         if new_download_rate_limit != self.original_download_rate_limit:
-            logger.info("Setting new download rate: %s (%s)" % (new_download_rate_limit, self.torrent_hash))
-            self.client.torrents_set_download_limit(limit=new_download_rate_limit, torrent_ids=self.torrent_hash)
+            logger.info(
+                "Setting new download rate: %s (%s)",
+                new_download_rate_limit,
+                self.torrent_hash,
+            )
+            self.client.torrents_set_download_limit(
+                limit=new_download_rate_limit, torrent_ids=self.torrent_hash
+            )
 
         if new_category != self.original_category:
-            if new_category == '<no category>':
+            if new_category == "<no category>":
                 new_category = ""
-            logger.info("Setting new category: %s (%s)" % (new_category, self.torrent_hash))
-            self.client.torrents_set_category(category=new_category, torrent_ids=self.torrent_hash)
+            logger.info(
+                "Setting new category: %s (%s)", new_category, self.torrent_hash
+            )
+            self.client.torrents_set_category(
+                category=new_category, torrent_ids=self.torrent_hash
+            )
 
         if new_share_ratio != self.original_share_ratio:
             if new_share_ratio in [-1, -2]:
-                self.client.torrents_set_share_limits(ratio_limit=new_share_ratio,
-                                                      seeding_time_limit=new_share_ratio,
-                                                      torrent_ids=self.torrent_hash)
+                self.client.torrents_set_share_limits(
+                    ratio_limit=new_share_ratio,
+                    seeding_time_limit=new_share_ratio,
+                    torrent_ids=self.torrent_hash,
+                )
             else:
-                self.client.torrents_set_share_limits(ratio_limit=new_share_ratio_percentage,
-                                                      seeding_time_limit=new_share_ratio_minutes,
-                                                      torrent_ids=self.torrent_hash)
+                self.client.torrents_set_share_limits(
+                    ratio_limit=new_share_ratio_percentage,
+                    seeding_time_limit=new_share_ratio_minutes,
+                    torrent_ids=self.torrent_hash,
+                )
 
         self.reset_screen_to_torrent_list_window()
 
@@ -832,13 +1036,28 @@ class TorrentOptionsDialog(uw.ListBox):
                             uw.Divider(),
                             uw.Columns(
                                 [
-                                    uw.Padding(uw.Text('')),
-                                    (6, uw.AttrMap(ButtonWithoutCursor("OK",
-                                                                       on_press=self.confirm_delete),
-                                                   '', focus_map='selected')),
-                                    (10, uw.AttrMap(ButtonWithoutCursor("Cancel",
-                                                                        on_press=self.close_delete_dialog),
-                                                    '', focus_map='selected'))
+                                    uw.Padding(uw.Text("")),
+                                    (
+                                        6,
+                                        uw.AttrMap(
+                                            ButtonWithoutCursor(
+                                                "OK", on_press=self.confirm_delete
+                                            ),
+                                            "",
+                                            focus_map="selected",
+                                        ),
+                                    ),
+                                    (
+                                        10,
+                                        uw.AttrMap(
+                                            ButtonWithoutCursor(
+                                                "Cancel",
+                                                on_press=self.close_delete_dialog,
+                                            ),
+                                            "",
+                                            focus_map="selected",
+                                        ),
+                                    ),
                                 ],
                                 dividechars=2,
                             ),
@@ -851,12 +1070,14 @@ class TorrentOptionsDialog(uw.ListBox):
             valign=uw.MIDDLE,
             width=30,
             height=10,
-            min_width=20
+            min_width=20,
         )
 
     def confirm_delete(self, b):
         delete_files = self.delete_files_w.get_state()
-        self.client.torrents_delete(torrent_ids=self.torrent_hash, delete_files=delete_files)
+        self.client.torrents_delete(
+            torrent_ids=self.torrent_hash, delete_files=delete_files
+        )
         self.reset_screen_to_torrent_list_window()
 
     def close_delete_dialog(self, b):
@@ -883,30 +1104,45 @@ class TorrentAddDialog(uw.ListBox):
     def __init__(self, main):
         self.main = main
 
-        categories = {x: x for x in list(self.main.server.categories.keys())}
+        categories = {x: x for x in self.main.server.categories.keys()}
         categories["<no category>"] = "<no category>"
 
-        prefs = self.main.daemon.get_server_preferences()
-        if 'create_subfolder_enabled' in prefs:
+        prefs = AttrDict()
+        for _ in range(10):
+            # this naive loop avoids the situation where preferences
+            # haven't been loaded yet....such as right after start up...
+            if prefs := self.main.daemon.get_server_preferences():
+                break
+            sleep(1)
+        if "create_subfolder_enabled" in prefs:
             create_folder = prefs.create_subfolder_enabled
+        elif "torrent_content_layout" in prefs:
+            create_folder = prefs.torrent_content_layout in ("Subfolder", "Original")
         else:
-            create_folder = prefs.torrent_content_layout in ('Subfolder', 'Original')
+            create_folder = True
 
         self.torrent_file_w = uw.Edit(caption="Torrent file path: ")
         self.torrent_url_w = uw.Edit(caption="Torrent url: ")
-        self.autotmm_w = uw.CheckBox("Automatic Torrent Management",
-                                     state=prefs.auto_tmm_enabled)
-        self.location_w = uw.Edit(caption="Save path: ",
-                                  edit_text=prefs.save_path)
+        self.autotmm_w = uw.CheckBox(
+            "Automatic Torrent Management", state=prefs.auto_tmm_enabled
+        )
+        self.location_w = uw.Edit(caption="Save path: ", edit_text=prefs.save_path)
         self.name_w = uw.Edit(caption="Custom name: ")
-        self.category_w = panwid.Dropdown(items=categories,
-                                          label="Category",
-                                          default="<no category>",
-                                          auto_complete=True)
-        self.start_torrent_w = uw.CheckBox("Start Torrent",
-                                           state=(not prefs.start_paused_enabled))
-        self.download_in_sequential_order_w = uw.CheckBox("Download in Sequential Order")
-        self.download_first_last_first_w = uw.CheckBox("Download First and Last Pieces First")
+        self.category_w = panwid.Dropdown(
+            items=categories,
+            label="Category",
+            default="<no category>",
+            auto_complete=True,
+        )
+        self.start_torrent_w = uw.CheckBox(
+            "Start Torrent", state=(not prefs.start_paused_enabled)
+        )
+        self.download_in_sequential_order_w = uw.CheckBox(
+            "Download in Sequential Order"
+        )
+        self.download_first_last_first_w = uw.CheckBox(
+            "Download First and Last Pieces First"
+        )
         self.skip_hash_check_w = uw.CheckBox("Skip Hash Check")
         self.create_subfolder_w = uw.CheckBox("Create Subfolder", create_folder)
         self.upload_rate_limit_w = uw.IntEdit(caption="Upload Rate Limit (Kib/s)  : ")
@@ -936,13 +1172,27 @@ class TorrentAddDialog(uw.ListBox):
                     uw.Divider(),
                     uw.Columns(
                         [
-                            uw.Padding(uw.Text('')),
-                            (6, uw.AttrMap(ButtonWithoutCursor("OK",
-                                                               on_press=self.add_torrent),
-                                           '', focus_map='selected')),
-                            (10, uw.AttrMap(ButtonWithoutCursor("Cancel",
-                                                                on_press=self.close_window),
-                                            '', focus_map='selected'))
+                            uw.Padding(uw.Text("")),
+                            (
+                                6,
+                                uw.AttrMap(
+                                    ButtonWithoutCursor(
+                                        "OK", on_press=self.add_torrent
+                                    ),
+                                    "",
+                                    focus_map="selected",
+                                ),
+                            ),
+                            (
+                                10,
+                                uw.AttrMap(
+                                    ButtonWithoutCursor(
+                                        "Cancel", on_press=self.close_window
+                                    ),
+                                    "",
+                                    focus_map="selected",
+                                ),
+                            ),
                         ],
                         dividechars=2,
                     ),
@@ -988,14 +1238,16 @@ class TorrentAddDialog(uw.ListBox):
             download_limit=download_limit,
             use_auto_torrent_management=is_autotmm,
             is_sequential_download=is_seq_download,
-            is_first_last_piece_priority=is_first_last_download
+            is_first_last_piece_priority=is_first_last_download,
         )
         self.reset_screen_to_torrent_list_window()
 
     def keypress(self, size, key):
         log_keypress(logger, self, key)
-        key = super(TorrentAddDialog, self).keypress(size, {"shift tab": "up", "tab": "down"}.get(key, key))
-        if key == 'esc':
+        key = super(TorrentAddDialog, self).keypress(
+            size, {"shift tab": "up", "tab": "down"}.get(key, key)
+        )
+        if key == "esc":
             self.close_window()
         return key
 

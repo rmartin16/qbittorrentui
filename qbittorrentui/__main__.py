@@ -10,7 +10,9 @@ def main():
 
 def parse_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument("-c", "--config_file", type=str, default='', help="configuration ini file")
+    parser.add_argument(
+        "-c", "--config_file", type=str, default="", help="configuration ini file"
+    )
 
     args = parser.parse_args()
 
