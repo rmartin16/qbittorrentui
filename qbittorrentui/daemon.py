@@ -4,6 +4,7 @@ import queue
 import threading
 from copy import deepcopy
 from time import time
+from abc import ABC, abstractmethod
 
 from qbittorrentui._vendored.attrdict import AttrDict
 from qbittorrentui.config import config
@@ -185,7 +186,7 @@ class DaemonManager(threading.Thread):
             self.connection_failure_reported = False
 
 
-class Daemon(threading.Thread):
+class Daemon(threading.Thread, ABC):
     """
     Base class for background daemons to send and receive data/commands with server.
 
@@ -195,23 +196,28 @@ class Daemon(threading.Thread):
     def __init__(self, torrent_client: Connector):
         super(Daemon, self).__init__()
         self.setDaemon(daemonic=True)
+        self.setName(self.__class__.__name__)
         self.stop_request = threading.Event()
         self.wake_up = threading.Event()
         self.reset = threading.Event()
 
         self._loop_interval = int(config.get("DAEMON_LOOP_INTERVAL"))
         self._loop_success = False
-        self._daemon_name = self.__class__.__name__
 
         self.client = torrent_client
 
         reset_daemons.connect(receiver=self.reset_signal)
 
-    def reset_signal(self, *a):
-        self.reset.set()
-
+    @abstractmethod
     def reset_daemon(self):
         pass
+
+    @abstractmethod
+    def _one_loop(self):
+        pass
+
+    def reset_signal(self, *a):
+        self.reset.set()
 
     def stop(self, *a):
         self.stop_request.set()
@@ -240,22 +246,19 @@ class Daemon(threading.Thread):
                 logger.info(
                     "Daemon %s could not connect to server", self.__class__.__name__
                 )
-                connection_to_server_status.send(f"{self._daemon_name}", success=False)
+                connection_to_server_status.send(f"{self.name}", success=False)
             except Exception:
-                logger.info("Daemon %s crashed", self._daemon_name, exc_info=True)
+                logger.info("Daemon %s crashed", self.name, exc_info=True)
             finally:
                 if self._loop_success:
-                    connection_to_server_status.send(self._daemon_name, success=True)
+                    connection_to_server_status.send(self.name, success=True)
                     self._loop_success = False
                 # wait for next loop
                 poll_time = time() - start_time
                 if poll_time < self._loop_interval:
                     self.wake_up.wait(self._loop_interval - poll_time)
 
-        logger.info("Daemon %s exiting", self._daemon_name)
-
-    def _one_loop(self):
-        pass
+        logger.info("Daemon %s exiting", self.name)
 
 
 class SyncMainData(Daemon):
@@ -290,7 +293,7 @@ class SyncMainData(Daemon):
             self._rid = 0
 
     def reset_daemon(self):
-        logger.info("%s is resetting", self._daemon_name)
+        logger.info("%s is resetting", self.name)
         self._rid = 0
         while not self.maindata_q.empty():
             self.maindata_q.get()
@@ -332,7 +335,7 @@ class SyncTorrent(Daemon):
             self._loop_success = True
 
     def reset_daemon(self):
-        logger.info("%s is resetting", self._daemon_name)
+        logger.info("%s is resetting", self.name)
         self._rid = {}
         self._torrent_hashes = []
         self._torrent_stores = {}
@@ -483,6 +486,9 @@ class ServerDetails(Daemon):
 
         self._loop_success = True
 
+    def reset_daemon(self):
+        logger.info("%s is resetting", self.name)
+
     def get_server_preferences(self):
         self._server_preferences_lock.acquire()
         prefs = deepcopy(self._server_preferences)
@@ -546,8 +552,11 @@ class Commands(Daemon):
         # request server sync if commands were issued
         if ran_commands:
             self._loop_success = True
-            update_torrent_list_now.send("%s daemon" % self._daemon_name)
-            update_torrent_window_now.send("%s daemon" % self._daemon_name)
+            update_torrent_list_now.send("%s daemon" % self.name)
+            update_torrent_window_now.send("%s daemon" % self.name)
+
+    def reset_daemon(self):
+        logger.info("%s is resetting", self.name)
 
     def run_command(self, sender: str, command_func: str, command_args: dict):
         self._command_q.put(dict(func=command_func, func_args=command_args))

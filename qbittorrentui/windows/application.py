@@ -158,8 +158,15 @@ class ConnectDialog(uw.ListBox):
         self.attempt_auto_connect = False
         for section in config.keys():
             if section != "DEFAULT":
+                # if CONNECT_AUTOMATICALLY is set to anything other than
+                # 0 or FALSE/false/False, automatically connecting is enabled
+                settings_auto_connect = config.get(
+                    section=section, option="CONNECT_AUTOMATICALLY"
+                )
                 is_auto_connect = bool(
-                    config.get(section=section, option="CONNECT_AUTOMATICALLY")
+                    settings_auto_connect
+                    and not settings_auto_connect.upper() == "FALSE"
+                    and not settings_auto_connect == "0"
                 )
                 if (
                     support_auto_connect
