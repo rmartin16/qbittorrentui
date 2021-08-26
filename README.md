@@ -1,10 +1,13 @@
 qBittorrenTUI
 ===============
-Console UI for qBittorrent. Functional...but a little rough around the edges...
+[![PyPI](https://img.shields.io/pypi/v/qbittorrentui?style=flat-square)](https://pypi.org/project/qbittorrentui/) 
+![PyPI - Python Version](https://img.shields.io/pypi/pyversions/qbittorrentui?style=flat-square)
 
-![qbittorrentui screenshot 1](https://i.imgur.com/iGM3bPI.png)
+Console UI for qBittorrent. Not feature-complete but is usable for low volume and everyday torrenting.
 
-![qbittorrentui screensho 2t](https://i.imgur.com/msRNi86.png)
+![qbittorrentui screenshot 1](https://i.imgur.com/Uy7DK37.png)
+
+![qbittorrentui screensho 2](https://i.imgur.com/E6I9q4V.png)
 
 Key Map
 -------
@@ -24,47 +27,13 @@ Torrent Window
   * enter : bump priority
   * space : bump priority
 
-Recommended Installation
-------------------------
-```bash
-$ pipx install qbittorrentui
-$ pipx upgrade qbittorrentui  # to upgrade later on
-$ qbittorrentui  # to launch the app
-$ qbittorrentui --config_file qbtui_connections.ini
-```
-
-If running ```qbittorrentui``` doesn't start the application, run ```pipx ensurepath``` and open a new terminal window (or source your terminal's rc).
-
 Installation
 ------------
 Install from pypi:
 ```bash
-$ python3 -m venv ~/venv-qbittorrentui
-$ source ~/venv-qbittorrentui/bin/activate && pip install qbittorrentui; deactivate
+pip install qbittorrentui
 ```
-Once installed, this will run it:
-```bash
-$ source ~/venv-qbittorrentui/bin/activate && qbittorrentui; deactivate
-```
-
-Or install direct from master:
-```bash
-$ pip install -e git+https://github.com/rmartin16/qbittorrentui.git#egg=qbittorrentui
-$ qbittorrentui
-```
-Although, I definitely recommend doing this within a virtual environment:
-```bash
-$ python3 -m venv ~/venv-qbittorrentui
-$ source ~/venv-qbittorrentui/bin/activate && pip install -e git+https://github.com/rmartin16/qbittorrentui.git#egg=qbittorrentui; deactivate
-```
-Once installed, this will run it:
-```bash
-$ source ~/venv-qbittorrentui/bin/activate && qbittorrentui; deactivate
-```
-
-Installation Issues
-* Issues stemming from "#include <Python.h>":
-  * ```sudo apt-get install python3-dev```
+In most cases, this should allow you to run the application simply with the `qbittorrentui` command. Alternatively, you can specify a specific python binary with `./venv/bin/python -m qbittorrentui` or similar.
 
 Configuration
 -------------
@@ -94,6 +63,7 @@ Application
  - [ ] Figure out the theme(s)
  - [x] Configuration for connections
  - [ ] Log/activity output (likely above status bar)
+ - [ ] Implement window for editing qBittorrent settings
 
 Torrent List Window
  - [ ] Torrent sorting
@@ -101,6 +71,7 @@ Torrent List Window
  - [ ] Torrent searching
  - [ ] Torrent status icon in torrent name
  - [ ] Torrent name color coding
+ - [ ] Torrent list column configuration
 
 Torrent Window
  - [ ] Make focus more obvious when switching between tabs list and a display
