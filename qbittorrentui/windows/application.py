@@ -65,24 +65,31 @@ class AppTitleBar(uw.Text):
     def refresh(self, sender, details: dict = None):
         start_time = time()
 
-        div_ch = "|"
+        div_ch = " | "
         server_version_str = ""
         hostname_str = ""
+        title = ""
 
         if details is None:
             details = {}
 
         if ver := details.get("server_version", ""):
-            server_version_str = f" {div_ch} {ver}"
+            server_version_str = ver
 
         hostname = config.get("HOST")
         port = config.get("PORT")
-        if hostname:
-            hostname_str = f" {div_ch} {hostname}"
-            if port:
-                hostname_str = f"{hostname_str}:{port}"
+        hostname_str = (
+            f"{hostname if hostname else ''}{f':{port}' if hostname and port else ''}"
+        )
 
-        self.set_text(f"{APPLICATION_NAME}{server_version_str}{hostname_str}")
+        if server_version_str:
+            title = server_version_str
+        if APPLICATION_NAME:
+            title = title + (div_ch if title else "") + APPLICATION_NAME
+        if hostname_str:
+            title = title + (div_ch if title else "") + hostname_str
+
+        self.set_text(title)
 
         assert log_timing(logger, "Updating", self, sender, start_time)
 
