@@ -136,7 +136,7 @@ class TorrentServer:
                     self.categories.pop(category, None)
                 # add new categories or new category info
                 for category_name, category in md.categories.items():
-                    if category in self.categories:
+                    if category_name in self.categories:
                         self.categories[category_name].update(category)
                     else:
                         self.categories[category_name] = category
@@ -207,7 +207,7 @@ class Main:
         self.loop.widget = uw.Overlay(
             top_w=uw.LineBox(
                 ConnectDialog(
-                    self,
+                    main=self,
                     error_message="Connection lost...attempting automatic reconnection",
                 )
             ),
@@ -221,7 +221,7 @@ class Main:
     def connection_acquired(self, sender):
         logger.info("Connection reacquired...")
         try:
-            if type(self.loop.widget.top_w.base_widget) == ConnectDialog:
+            if isinstance(self.loop.widget.top_w.base_widget, ConnectDialog):
                 self.loop.widget = self.loop.widget.bottom_w
         except AttributeError:
             pass
@@ -271,12 +271,12 @@ class Main:
     def _setup_splash(self):
         logger.info("Creating splash window")
         self.splash_screen = uw.Overlay(
-            uw.BigText(APPLICATION_NAME, uw.Thin6x6Font()),
-            uw.SolidFill(),
-            "center",
-            None,
-            "middle",
-            None,
+            top_w=uw.BigText(APPLICATION_NAME, uw.Thin6x6Font()),
+            bottom_w=uw.SolidFill(),
+            align="center",
+            width=None,
+            valign="middle",
+            height=None,
         )
 
     def _setup_urwid_loop(self):
