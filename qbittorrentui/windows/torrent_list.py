@@ -1,4 +1,5 @@
 import logging
+from contextlib import suppress
 from time import sleep, time
 
 import panwid
@@ -552,7 +553,10 @@ class TorrentRowColumns(uw.Columns):
 
         def format_eta(v):
             eta = pretty_time_delta(seconds=v) if v < SECS_INFINITY else INFINITY
-            return f"ETA {eta}".ljust(6)
+            # just use first unit from pretty time delta
+            with suppress(StopIteration):
+                eta = eta[:next(i for i, c in enumerate(eta) if not c.isnumeric())+1]
+            return f"ETA {eta.rjust(3)}"[:7]
 
         self.eta_w = val_cont(
             name="eta", raw_value=SECS_INFINITY, format_func=format_eta
