@@ -5,7 +5,7 @@ with open("README.md", "r") as fh:
 
 setup(
     name="qbittorrentui",
-    version="0.3.2",
+    version="0.3.3",
     packages=find_packages(exclude=["*.tests", "*.tests.*", "tests.*", "tests"]),
     package_data={"": ["default.ini"]},
     include_package_data=True,
@@ -13,7 +13,7 @@ setup(
         "urwid==2.1.2",
         "qbittorrent-api",
         "blinker-alt==1.5",
-        "panwid==0.3.3",
+        "panwid==0.3.4",
     ],
     entry_points={"console_scripts": ["qbittorrentui = qbittorrentui.__main__:main"]},
     url="https://github.com/rmartin16/qbittorrentui",
