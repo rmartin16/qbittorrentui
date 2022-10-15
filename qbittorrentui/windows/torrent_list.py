@@ -1,5 +1,6 @@
 import logging
 from contextlib import suppress
+from re import sub as re_sub
 from time import sleep, time
 
 import panwid
@@ -490,6 +491,8 @@ class TorrentRowColumns(uw.Columns):
         pb_cont = TorrentRowColumns.TorrentInfoColumnPBContainer
 
         def format_title(v):
+            # strip unicode version selectors
+            v = re_sub(r"[\uFE00-\uFE0F]", "", v)
             return str(v).ljust(int(config.get("TORRENT_LIST_MAX_TORRENT_NAME_LENGTH")))
 
         self.name_w = val_cont(name="name", raw_value="", format_func=format_title)
