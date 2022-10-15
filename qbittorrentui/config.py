@@ -4,7 +4,7 @@ from os import path as os_path
 
 class Configuration(configparser.ConfigParser):
     def __init__(self):
-        super(Configuration, self).__init__()
+        super().__init__()
         # load default configuration
         self.read(os_path.join(os_path.split(__file__)[0], "default.ini"))
         self._section = "DEFAULT"
@@ -14,19 +14,13 @@ class Configuration(configparser.ConfigParser):
 
     def get(self, option: str, section: str = None):
         if section:
-            return super(Configuration, self).get(
-                section=section, option=option, raw=True
-            )
-        return super(Configuration, self).get(
-            section=self._section, option=option, raw=True
-        )
+            return super().get(section=section, option=option, raw=True)
+        return super().get(section=self._section, option=option, raw=True)
 
     def set(self, option: str, value: str, section: str = None):
         if section:
-            super(Configuration, self).set(section=section, option=option, value=value)
-        super(Configuration, self).set(
-            section=self._section, option=option, value=value
-        )
+            super().set(section=section, option=option, value=value)
+        super().set(section=self._section, option=option, value=value)
 
 
 # CONSTANTS

@@ -7,23 +7,19 @@ import blinker
 import urwid as uw
 
 from qbittorrentui._vendored.attrdict import AttrDict
-from qbittorrentui.config import INFINITY
-from qbittorrentui.config import SECS_INFINITY
-from qbittorrentui.config import config
+from qbittorrentui.config import INFINITY, SECS_INFINITY, config
 from qbittorrentui.connector import Connector
-from qbittorrentui.debug import log_keypress
-from qbittorrentui.debug import log_timing
+from qbittorrentui.debug import log_keypress, log_timing
 from qbittorrentui.events import torrent_window_tab_change
-from qbittorrentui.formatters import natural_file_size
-from qbittorrentui.formatters import pretty_time_delta
-from qbittorrentui.misc_widgets import DownloadProgressBar
-from qbittorrentui.misc_widgets import SelectableText
+from qbittorrentui.formatters import natural_file_size, pretty_time_delta
+from qbittorrentui.misc_widgets import DownloadProgressBar, SelectableText
 
 logger = logging.getLogger(__name__)
 
 
 class TorrentWindow(uw.Columns):
-    """Display window with tabs for different collections of torrent information."""
+    """Display window with tabs for different collections of torrent
+    information."""
 
     def __init__(self, main, torrent_hash, torrent, client):
 
@@ -42,7 +38,7 @@ class TorrentWindow(uw.Columns):
             (uw.WEIGHT, 90, self.content_column),
         ]
 
-        super(TorrentWindow, self).__init__(
+        super().__init__(
             columns_list, dividechars=3, focus_column=0, min_width=15, box_columns=None
         )
 
@@ -66,7 +62,7 @@ class TorrentWindow(uw.Columns):
 
     def keypress(self, size, key):
         log_keypress(logger, self, key)
-        key = super(TorrentWindow, self).keypress(size, key)
+        key = super().keypress(size, key)
         if key in ["esc", "left"]:
             self.return_to_torrent_list()
             return None
@@ -94,13 +90,13 @@ class TorrentTabsDisplay(uw.ListBox):
                 ]
             )
         self.list_walker = uw.SimpleFocusListWalker(tabs_list_for_walker)
-        super(TorrentTabsDisplay, self).__init__(self.list_walker)
+        super().__init__(self.list_walker)
 
         self.__selected_tab_pos = None
 
     def keypress(self, size, key):
         log_keypress(logger, self, key)
-        key = super(TorrentTabsDisplay, self).keypress(size, key)
+        key = super().keypress(size, key)
 
         # Add 'selected' AttrMap to newly focused tab
         #  and remove 'selected'' AttrMap from previously focused tab
@@ -458,7 +454,7 @@ class GeneralDisplay(uw.ListBox):
                 self.created_on_w,
             ]
         )
-        super(GeneralDisplay, self).__init__(walker)
+        super().__init__(walker)
 
     def update(self, sender, **kw):
         start_time = time()
@@ -470,7 +466,7 @@ class GeneralDisplay(uw.ListBox):
 
     def keypress(self, size, key):
         log_keypress(logger, self, key)
-        key = super(GeneralDisplay, self).keypress(size, key)
+        key = super().keypress(size, key)
         return key
 
     class TorrentWindowGeneralTabValueContainer(uw.Columns):
@@ -481,7 +477,7 @@ class GeneralDisplay(uw.ListBox):
             format_func,
             source: str = "properties",
         ):
-            super(GeneralDisplay.TorrentWindowGeneralTabValueContainer, self).__init__(
+            super().__init__(
                 [], dividechars=1, focus_column=None, min_width=1, box_columns=None
             )
             self.data_elements = data_elements
@@ -536,7 +532,7 @@ class GeneralDisplay(uw.ListBox):
 class TrackersDisplay(uw.ListBox):
     def __init__(self):
         self.walker = uw.SimpleFocusListWalker([])
-        super(TrackersDisplay, self).__init__(self.walker)
+        super().__init__(self.walker)
 
     def update(self, sender, **kw):
         """
@@ -647,14 +643,14 @@ class TrackersDisplay(uw.ListBox):
 
     def keypress(self, size, key):
         log_keypress(logger, self, key)
-        key = super(TrackersDisplay, self).keypress(size, key)
+        key = super().keypress(size, key)
         return key
 
 
 class PeersDisplay(uw.ListBox):
     def __init__(self):
         self.walker = uw.SimpleFocusListWalker([])
-        super(PeersDisplay, self).__init__(self.walker)
+        super().__init__(self.walker)
 
     def update(self, sender, **kw):
         """
@@ -849,7 +845,7 @@ class PeersDisplay(uw.ListBox):
 
     def keypress(self, size, key):
         log_keypress(logger, self, key)
-        key = super(PeersDisplay, self).keypress(size, key)
+        key = super().keypress(size, key)
         return key
 
 
@@ -866,7 +862,6 @@ class ContentDisplay(uw.Pile):
 
     This tree was derived from a urwid example:
     https://github.com/urwid/urwid/blob/master/examples/browse.py
-
     """
 
     def __init__(self, client: Connector, torrent_hash):
@@ -899,7 +894,7 @@ class ContentDisplay(uw.Pile):
         self.tree_w = uw.TreeListBox(self.walker)
         w_list = [(1, self.title_bar), self.tree_w]
 
-        super(ContentDisplay, self).__init__(w_list)
+        super().__init__(w_list)
 
     def update(self, sender, **kw):
         start_time = time()
@@ -933,12 +928,12 @@ class ContentDisplay(uw.Pile):
 
     def keypress(self, size, key):
         log_keypress(logger, self, key)
-        key = super(ContentDisplay, self).keypress(size, key)
+        key = super().keypress(size, key)
         return key
 
-    class Content(object):
+    class Content:
         def __init__(self, client, torrent_hash, content, collapsed_dirs: list):
-            super(ContentDisplay.Content, self).__init__()
+            super().__init__()
             self.client = client
             self.torrent_hash = torrent_hash
             self._torrent_content = content
@@ -952,7 +947,9 @@ class ContentDisplay(uw.Pile):
                 if unwanted in c_name:
                     c_name = (
                         c_name[: c_name.find(unwanted)]
-                        + c_name[c_name.find(unwanted) + len(unwanted) :]
+                        + c_name[
+                            (c_name.find(unwanted) + len(unwanted)) :  # noqa: E203
+                        ]
                     )
 
                 # build tree data
@@ -1045,7 +1042,7 @@ class ContentDisplay(uw.Pile):
             if self.dir_sep() in name:
                 index = None
                 node_name = name[: name.find(self.dir_sep())]
-                children_name = name[name.find(self.dir_sep()) + 1 :]
+                children_name = name[(name.find(self.dir_sep()) + 1) :]  # noqa: E203
                 if node_name not in [e["name"] for e in content_list]:
                     new_node = dict(name=node_name, children=list())
                     content_list.append(new_node)
@@ -1177,7 +1174,7 @@ class ContentDisplay(uw.Pile):
             return path
 
         def keypress(self, size, key):
-            """allow subclasses to intercept keystrokes"""
+            """allow subclasses to intercept keystrokes."""
             key = self.__super.keypress(size, key)
             if key:
                 key = self.unhandled_keys(size, key)
@@ -1235,7 +1232,7 @@ class ContentDisplay(uw.Pile):
         """Widget for a directory."""
 
         def __init__(self, node):
-            super(ContentDisplay.DirectoryWidget, self).__init__(node)
+            super().__init__(node)
             self.expanded = not (
                 self.get_node().get_value()
                 in self.get_node().content.get_collapsed_dirs()
@@ -1250,7 +1247,7 @@ class ContentDisplay(uw.Pile):
                 return node.get_key()
 
     class FileNode(uw.TreeNode):
-        """Metadata storage for individual files"""
+        """Metadata storage for individual files."""
 
         @staticmethod
         def dir_sep():
@@ -1278,7 +1275,7 @@ class ContentDisplay(uw.Pile):
             return ContentDisplay.EmptyWidget(self)
 
     class DirectoryNode(uw.ParentNode):
-        """Metadata storage for directories"""
+        """Metadata storage for directories."""
 
         @staticmethod
         def dir_sep():
@@ -1333,7 +1330,7 @@ class ContentDisplay(uw.Pile):
             return keys
 
         def load_child_node(self, key):
-            """Return either a FileNode or DirectoryNode"""
+            """Return either a FileNode or DirectoryNode."""
             if key is None:
                 return ContentDisplay.EmptyNode(None)
 

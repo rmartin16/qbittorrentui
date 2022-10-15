@@ -1,6 +1,6 @@
 qBittorrenTUI
 ===============
-[![PyPI](https://img.shields.io/pypi/v/qbittorrentui?style=flat-square)](https://pypi.org/project/qbittorrentui/) 
+[![PyPI](https://img.shields.io/pypi/v/qbittorrentui?style=flat-square)](https://pypi.org/project/qbittorrentui/)
 ![PyPI - Python Version](https://img.shields.io/pypi/pyversions/qbittorrentui?style=flat-square)
 
 Console UI for qBittorrent. Not feature-complete but is usable for low volume and everyday torrenting.

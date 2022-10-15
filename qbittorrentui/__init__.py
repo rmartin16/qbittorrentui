@@ -1,1 +1,1 @@
-from qbittorrentui.main import run
+from qbittorrentui.main import run  # noqa: F401

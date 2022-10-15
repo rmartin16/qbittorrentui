@@ -6,26 +6,30 @@ import panwid
 import urwid as uw
 
 from qbittorrentui._vendored.attrdict import AttrDict
-from qbittorrentui.config import DOWN_TRIANGLE
-from qbittorrentui.config import INFINITY
-from qbittorrentui.config import SECS_INFINITY
-from qbittorrentui.config import STATE_MAP_FOR_DISPLAY
-from qbittorrentui.config import TORRENT_LIST_FILTERING_STATE_MAP
-from qbittorrentui.config import UP_ARROW
-from qbittorrentui.config import UP_TRIANGLE
-from qbittorrentui.config import config
+from qbittorrentui.config import (
+    DOWN_TRIANGLE,
+    INFINITY,
+    SECS_INFINITY,
+    STATE_MAP_FOR_DISPLAY,
+    TORRENT_LIST_FILTERING_STATE_MAP,
+    UP_ARROW,
+    UP_TRIANGLE,
+    config,
+)
 from qbittorrentui.connector import Connector
-from qbittorrentui.debug import log_keypress
-from qbittorrentui.debug import log_timing
-from qbittorrentui.events import initialize_torrent_list
-from qbittorrentui.events import refresh_torrent_list_now
-from qbittorrentui.events import server_torrents_changed
-from qbittorrentui.events import update_torrent_list_now
-from qbittorrentui.formatters import natural_file_size
-from qbittorrentui.formatters import pretty_time_delta
-from qbittorrentui.misc_widgets import ButtonWithoutCursor
-from qbittorrentui.misc_widgets import DownloadProgressBar
-from qbittorrentui.misc_widgets import SelectableText
+from qbittorrentui.debug import log_keypress, log_timing
+from qbittorrentui.events import (
+    initialize_torrent_list,
+    refresh_torrent_list_now,
+    server_torrents_changed,
+    update_torrent_list_now,
+)
+from qbittorrentui.formatters import natural_file_size, pretty_time_delta
+from qbittorrentui.misc_widgets import (
+    ButtonWithoutCursor,
+    DownloadProgressBar,
+    SelectableText,
+)
 from qbittorrentui.windows.torrent import TorrentWindow
 
 logger = logging.getLogger(__name__)
@@ -56,7 +60,7 @@ class TorrentListWindow(uw.Pile):
         ]
 
         # initialize torrent list window
-        super(TorrentListWindow, self).__init__(pile)
+        super().__init__(pile)
 
         # signals
         initialize_torrent_list.connect(receiver=self.torrent_list_init)
@@ -74,13 +78,13 @@ class TorrentListWindow(uw.Pile):
             self._width = size[0]
             # call to refresh_torrent_list on screen re-sizes
             refresh_torrent_list_now.send("torrent list render")
-        ret = super(TorrentListWindow, self).render(size, focus)
+        ret = super().render(size, focus)
         assert log_timing(logger, "Rendering", self, "render", start_time)
         return ret
 
     def keypress(self, size, key):
         log_keypress(logger, self, key)
-        key = super(TorrentListWindow, self).keypress(size, key)
+        key = super().keypress(size, key)
         if key in ["a", "A"]:
             self.main.loop.widget = uw.Overlay(
                 top_w=uw.LineBox(TorrentAddDialog(self.main)),
@@ -94,7 +98,7 @@ class TorrentListWindow(uw.Pile):
         return key
 
     def torrent_list_init(self, sender):
-        """once connected to qbittorrent, initialize torrent list window"""
+        """once connected to qbittorrent, initialize torrent list window."""
         server_torrents_changed.connect(receiver=self.update_torrent_list)
         refresh_torrent_list_now.connect(receiver=self.refresh_torrent_list)
         update_torrent_list_now.send("initialization")
@@ -157,9 +161,7 @@ class TorrentListWindow(uw.Pile):
 
 class TorrentList(uw.ListBox):
     def __init__(self, torrent_list_box):
-        super(TorrentList, self).__init__(
-            uw.SimpleFocusListWalker([uw.Text("Loading...")])
-        )
+        super().__init__(uw.SimpleFocusListWalker([uw.Text("Loading...")]))
         # currently needed for resizing and creating TorrentRows
         self.torrent_list_box_w = torrent_list_box
 
@@ -168,7 +170,7 @@ class TorrentList(uw.ListBox):
 
     def keypress(self, size, key):
         log_keypress(logger, self, key)
-        key = super(TorrentList, self).keypress(size, key)
+        key = super().keypress(size, key)
         return key
 
     def get_torrent_hash_for_focused_row(self):
@@ -181,7 +183,7 @@ class TorrentList(uw.ListBox):
 
     def set_torrent_list_focus(self, sender="", torrent_hash: str = None):
         """
-        Focus torrent row with provided torrent hash or focus first row
+        Focus torrent row with provided torrent hash or focus first row.
 
         :param sender:
         :param torrent_hash:
@@ -278,10 +280,9 @@ class TorrentList(uw.ListBox):
         """
         Resize all torrent rows to screen width.
 
-        1) Determine longest torrent name
-        2) Resize all torrent names to max name length
-        3) Determine widths of different sizings
-        4) Apply largest sizing that fits
+        1) Determine longest torrent name 2) Resize all torrent names to
+        max name length 3) Determine widths of different sizings 4)
+        Apply largest sizing that fits
         """
         # torrent info width with graphic progress bar: 115
 
@@ -382,7 +383,7 @@ class TorrentRow(uw.Pile):
         # store hash
         self.set_torrent_hash(torrent_hash)
         # build row widget
-        super(TorrentRow, self).__init__([self.torrent_row_columns_w])
+        super().__init__([self.torrent_row_columns_w])
 
     def update(self, torrent: dict):
         self.cached_torrent.update(torrent)
@@ -555,7 +556,7 @@ class TorrentRowColumns(uw.Columns):
             eta = pretty_time_delta(seconds=v) if v < SECS_INFINITY else INFINITY
             # just use first unit from pretty time delta
             with suppress(StopIteration):
-                eta = eta[:next(i for i, c in enumerate(eta) if not c.isnumeric())+1]
+                eta = eta[: next(i for i, c in enumerate(eta) if not c.isnumeric()) + 1]
             return f"ETA {eta.rjust(3)}"[:7]
 
         self.eta_w = val_cont(
@@ -600,7 +601,7 @@ class TorrentRowColumns(uw.Columns):
         self.text_pb_info_list.pop(3)
         self.text_pb_info_list.insert(3, (len(self.pb_text_w), self.pb_text_w))
 
-        super(TorrentRowColumns, self).__init__(
+        super().__init__(
             self.pb_full_info_list,
             dividechars=1,
             focus_column=None,
@@ -620,9 +621,7 @@ class TorrentRowColumns(uw.Columns):
 
     class TorrentInfoColumnValueContainer(SelectableText):
         def __init__(self, name, raw_value, format_func):
-            super(TorrentRowColumns.TorrentInfoColumnValueContainer, self).__init__(
-                "", wrap=uw.CLIP
-            )
+            super().__init__("", wrap=uw.CLIP)
 
             self.name = name
             self.format_func = format_func
@@ -655,7 +654,7 @@ class TorrentRowColumns(uw.Columns):
     class TorrentInfoColumnPBContainer(DownloadProgressBar):
         def __init__(self, name, current, done=100):
             self.name = name
-            super(TorrentRowColumns.TorrentInfoColumnPBContainer, self).__init__(
+            super().__init__(
                 "pg normal",
                 "pg complete",
                 current=current,
@@ -696,20 +695,18 @@ class TorrentListTabsColumns(uw.Columns):
                     focus_map="selected",
                 )
             )
-        super(TorrentListTabsColumns, self).__init__(
-            widget_list=torrent_tabs_list, dividechars=0, focus_column=0
-        )
+        super().__init__(widget_list=torrent_tabs_list, dividechars=0, focus_column=0)
 
     def get_selected_tab_name(self):
         """
-        Used to drive filtering torrents in display
+        Used to drive filtering torrents in display.
 
         :return:
         """
         return self.get_focus().base_widget.get_text()[0].lower()
 
     def move_cursor_to_coords(self, size, col, row):
-        """Don't change focus based on coords"""
+        """Don't change focus based on coords."""
         return True
 
     @staticmethod
@@ -729,7 +726,7 @@ class TorrentListTabsColumns(uw.Columns):
     def keypress(self, size, key):
         log_keypress(logger, self, key)
         old_tab: uw.AttrMap = self.get_focus()
-        key = super(TorrentListTabsColumns, self).keypress(size, key)
+        key = super().keypress(size, key)
         new_tab: uw.AttrMap = self.get_focus()
         self.update_focused_tab(old_tab=old_tab, new_tab=new_tab)
         return key
@@ -812,7 +809,7 @@ class TorrentOptionsDialog(uw.ListBox):
             auto_complete=True,
         )
 
-        super(TorrentOptionsDialog, self).__init__(
+        super().__init__(
             uw.SimpleFocusListWalker(
                 [
                     uw.Divider(),
@@ -949,9 +946,7 @@ class TorrentOptionsDialog(uw.ListBox):
 
     def keypress(self, size, key):
         log_keypress(logger, self, key)
-        key = super(TorrentOptionsDialog, self).keypress(
-            size, {"shift tab": "up", "tab": "down"}.get(key, key)
-        )
+        key = super().keypress(size, {"shift tab": "up", "tab": "down"}.get(key, key))
         if key == "esc":
             self.close_window()
         return key
@@ -1196,7 +1191,7 @@ class TorrentAddDialog(uw.ListBox):
         self.upload_rate_limit_w = uw.IntEdit(caption="Upload Rate Limit (Kib/s)  : ")
         self.download_rate_limit_w = uw.IntEdit(caption="Download Rate Limit (Kib/s): ")
 
-        super(TorrentAddDialog, self).__init__(
+        super().__init__(
             uw.SimpleFocusListWalker(
                 [
                     self.torrent_file_w,
@@ -1272,7 +1267,7 @@ class TorrentAddDialog(uw.ListBox):
         except ValueError:
             download_limit = None
 
-        outcome = self.main.torrent_client.torrents_add(
+        self.main.torrent_client.torrents_add(
             urls=torrent_url if torrent_url else None,
             torrent_files=torrent_file if torrent_file else None,
             save_path=save_path if save_path else None,
@@ -1292,9 +1287,7 @@ class TorrentAddDialog(uw.ListBox):
 
     def keypress(self, size, key):
         log_keypress(logger, self, key)
-        key = super(TorrentAddDialog, self).keypress(
-            size, {"shift tab": "up", "tab": "down"}.get(key, key)
-        )
+        key = super().keypress(size, {"shift tab": "up", "tab": "down"}.get(key, key))
         if key == "esc":
             self.close_window()
         return key

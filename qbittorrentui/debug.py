@@ -1,7 +1,6 @@
 import logging
 from time import time
 
-
 IS_TIMING_LOGGING_ENABLED = False
 default_logger = logging.getLogger(__name__)
 

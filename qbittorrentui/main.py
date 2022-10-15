@@ -1,22 +1,22 @@
 import logging
 from os import environ
-from time import time, sleep
+from time import sleep, time
 
 import blinker
 import urwid as uw
 
-from qbittorrentui.config import APPLICATION_NAME
-from qbittorrentui.config import config
+from qbittorrentui.config import APPLICATION_NAME, config
 from qbittorrentui.connector import Connector
 from qbittorrentui.daemon import DaemonManager
-from qbittorrentui.events import connection_to_server_acquired
-from qbittorrentui.events import connection_to_server_lost
-from qbittorrentui.events import exit_tui
-from qbittorrentui.events import server_details_changed
-from qbittorrentui.events import server_state_changed
-from qbittorrentui.events import server_torrents_changed
-from qbittorrentui.windows.application import AppWindow
-from qbittorrentui.windows.application import ConnectDialog
+from qbittorrentui.events import (
+    connection_to_server_acquired,
+    connection_to_server_lost,
+    exit_tui,
+    server_details_changed,
+    server_state_changed,
+    server_torrents_changed,
+)
+from qbittorrentui.windows.application import AppWindow, ConnectDialog
 
 try:
     logging.basicConfig(
@@ -105,7 +105,7 @@ class TorrentServer:
 
     def update_sync_maindata(self):
         """
-        Retrieve maindata from bg daemon and update local server state
+        Retrieve maindata from bg daemon and update local server state.
 
         :return:
         """
@@ -172,7 +172,7 @@ class Main:
     loop: uw.MainLoop
 
     def __init__(self, args=None):
-        super(Main, self).__init__()
+        super().__init__()
 
         if args.config_file:
             config.read(filenames=args.config_file)
@@ -296,7 +296,7 @@ class Main:
 
     def _finish_setup(self, loop, _):
         """
-        Once the TUI shows the splash screen, setup will continue here
+        Once the TUI shows the splash screen, setup will continue here.
 
         :param loop: urwid loop
         :param _: user_data from urwid loop

@@ -34,7 +34,7 @@ class DownloadProgressBar(uw.ProgressBar):
     def __init__(self, normal, complete, current=0, done=100, satt=None):
         if done == 0:
             done = 100
-        super(DownloadProgressBar, self).__init__(
+        super().__init__(
             normal=normal, complete=complete, current=current, done=done, satt=satt
         )
 

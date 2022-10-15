@@ -3,19 +3,16 @@ from time import time
 
 import urwid as uw
 
-from qbittorrentui.config import APPLICATION_NAME
-from qbittorrentui.config import DOWN_TRIANGLE
-from qbittorrentui.config import UP_TRIANGLE
-from qbittorrentui.config import config
-from qbittorrentui.connector import ConnectorError
-from qbittorrentui.connector import LoginFailed
-from qbittorrentui.debug import log_keypress
-from qbittorrentui.debug import log_timing
-from qbittorrentui.events import exit_tui
-from qbittorrentui.events import initialize_torrent_list
-from qbittorrentui.events import reset_daemons
-from qbittorrentui.events import server_details_changed
-from qbittorrentui.events import server_state_changed
+from qbittorrentui.config import APPLICATION_NAME, DOWN_TRIANGLE, UP_TRIANGLE, config
+from qbittorrentui.connector import ConnectorError, LoginFailed
+from qbittorrentui.debug import log_keypress, log_timing
+from qbittorrentui.events import (
+    exit_tui,
+    initialize_torrent_list,
+    reset_daemons,
+    server_details_changed,
+    server_state_changed,
+)
 from qbittorrentui.formatters import natural_file_size
 from qbittorrentui.misc_widgets import ButtonWithoutCursor
 from qbittorrentui.windows.torrent_list import TorrentListWindow
@@ -32,7 +29,7 @@ class AppWindow(uw.Frame):
         self.status_bar_w = AppStatusBar()
         self.torrent_list_w = TorrentListWindow(self.main)
 
-        super(AppWindow, self).__init__(
+        super().__init__(
             body=self.torrent_list_w,
             header=self.title_bar_w,
             footer=self.status_bar_w,
@@ -50,13 +47,13 @@ class AppWindow(uw.Frame):
                 valign=uw.MIDDLE,
                 height=(uw.RELATIVE, 50),
             )
-        return super(AppWindow, self).keypress(size, key)
+        return super().keypress(size, key)
 
 
 class AppTitleBar(uw.Text):
     def __init__(self):
         """Application title bar."""
-        super(AppTitleBar, self).__init__(
+        super().__init__(
             markup=APPLICATION_NAME, align=uw.CENTER, wrap=uw.CLIP, layout=None
         )
         self.refresh("title bar init")
@@ -101,7 +98,7 @@ class AppStatusBar(uw.Columns):
         self.right_column = uw.Padding(uw.Text("", align=uw.RIGHT, wrap=uw.CLIP))
 
         column_w_list = [(uw.PACK, self.left_column), (uw.WEIGHT, 1, self.right_column)]
-        super(AppStatusBar, self).__init__(
+        super().__init__(
             widget_list=column_w_list,
             dividechars=1,
             focus_column=None,
@@ -130,7 +127,7 @@ class AppStatusBar(uw.Columns):
         # (<dl size>)
         dl_up_text = f"{dl_up_text} ({natural_file_size(server_state.get('dl_info_data', 0), gnu=True)})"
         # <up rate>⯅
-        dl_up_text = f"{dl_up_text} {natural_file_size(server_state.get('up_info_speed', 0), gnu=True).rjust(6)}/s{UP_TRIANGLE}"
+        dl_up_text = f"{dl_up_text} {natural_file_size(server_state.get('up_info_speed', 0), gnu=True).rjust(6)}/s{UP_TRIANGLE}"  # noqa: E501
         # [<up limit>]
         if server_state.get("up_rate_limit", None):
             dl_up_text = f"{dl_up_text} [{natural_file_size(server_state.get('up_rate_limit', 0),gnu=True)}/s]"
@@ -231,7 +228,7 @@ class ConnectDialog(uw.ListBox):
             ]
         )
 
-        super(ConnectDialog, self).__init__(uw.SimpleFocusListWalker(walker_list))
+        super().__init__(uw.SimpleFocusListWalker(walker_list))
 
         if self.attempt_auto_connect:
             self.main.loop.set_alarm_in(0.001, callback=self.auto_connect)
@@ -242,9 +239,7 @@ class ConnectDialog(uw.ListBox):
 
     def keypress(self, size, key):
         log_keypress(logger, self, key)
-        key = super(ConnectDialog, self).keypress(
-            size, {"shift tab": "up", "tab": "down"}.get(key, key)
-        )
+        key = super().keypress(size, {"shift tab": "up", "tab": "down"}.get(key, key))
         if key in ["esc"]:
             self.close_dialog()
         return key

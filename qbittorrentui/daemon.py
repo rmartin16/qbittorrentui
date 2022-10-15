@@ -2,24 +2,25 @@ import logging
 import os
 import queue
 import threading
+from abc import ABC, abstractmethod
 from copy import deepcopy
 from time import time
-from abc import ABC, abstractmethod
 
 from qbittorrentui._vendored.attrdict import AttrDict
 from qbittorrentui.config import config
-from qbittorrentui.connector import Connector
-from qbittorrentui.connector import ConnectorError
+from qbittorrentui.connector import Connector, ConnectorError
 from qbittorrentui.debug import log_timing
-from qbittorrentui.events import connection_to_server_status
-from qbittorrentui.events import reset_daemons
-from qbittorrentui.events import run_server_command
-from qbittorrentui.events import server_details_changed
-from qbittorrentui.events import server_state_changed
-from qbittorrentui.events import server_torrents_changed
-from qbittorrentui.events import update_torrent_list_now
-from qbittorrentui.events import update_torrent_window_now
-from qbittorrentui.events import update_ui_from_daemon
+from qbittorrentui.events import (
+    connection_to_server_status,
+    reset_daemons,
+    run_server_command,
+    server_details_changed,
+    server_state_changed,
+    server_torrents_changed,
+    update_torrent_list_now,
+    update_torrent_window_now,
+    update_ui_from_daemon,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -34,7 +35,7 @@ class DaemonManager(threading.Thread):
     """
 
     def __init__(self, torrent_client: Connector, daemon_signal_fd: int):
-        super(DaemonManager, self).__init__()
+        super().__init__()
 
         self._wake_up = threading.Event()
         self._stop_request = threading.Event()
@@ -116,7 +117,6 @@ class DaemonManager(threading.Thread):
     def _process_connection_status_notification(self):
         while not self._connection_status_q.empty():
             notification = self._connection_status_q.get()
-            sender = notification["sender"]
             success = notification["success"]
             if success is True:
                 # if a connection was successful but a previous connection error was reported,
@@ -188,13 +188,14 @@ class DaemonManager(threading.Thread):
 
 class Daemon(threading.Thread, ABC):
     """
-    Base class for background daemons to send and receive data/commands with server.
+    Base class for background daemons to send and receive data/commands with
+    server.
 
     :param torrent_client:
     """
 
     def __init__(self, torrent_client: Connector):
-        super(Daemon, self).__init__()
+        super().__init__()
         self.setDaemon(daemonic=True)
         self.setName(self.__class__.__name__)
         self.stop_request = threading.Event()
@@ -263,13 +264,13 @@ class Daemon(threading.Thread, ABC):
 
 class SyncMainData(Daemon):
     """
-    Background daemon that syncs app with server
+    Background daemon that syncs app with server.
 
     :param torrent_client:
     """
 
     def __init__(self, torrent_client: Connector):
-        super(SyncMainData, self).__init__(torrent_client)
+        super().__init__(torrent_client)
 
         self.maindata_q = queue.Queue()
         self._rid = 0
@@ -300,7 +301,7 @@ class SyncMainData(Daemon):
 
     class MainData:
         def __init__(self, md: dict):
-            super(SyncMainData.MainData, self).__init__()
+            super().__init__()
             self.full_update = md.get("full_update", False)
             self.server_state = md.get("server_state", dict())
             self.torrents_removed = md.get("torrents_removed", dict())
@@ -317,7 +318,7 @@ class SyncTorrent(Daemon):
     """
 
     def __init__(self, torrent_client: Connector):
-        super(SyncTorrent, self).__init__(torrent_client)
+        super().__init__(torrent_client)
 
         self._rid = {}
         self._torrents_to_add_q = queue.Queue()
@@ -446,7 +447,7 @@ class SyncTorrent(Daemon):
 
     class TorrentStore:
         def __init__(self):
-            super(SyncTorrent.TorrentStore, self).__init__()
+            super().__init__()
             self.torrent = AttrDict()
             self.properties = AttrDict()
             self.trackers = []
@@ -462,7 +463,7 @@ class ServerDetails(Daemon):
     """
 
     def __init__(self, torrent_client: Connector):
-        super(ServerDetails, self).__init__(torrent_client)
+        super().__init__(torrent_client)
 
         self._server_details = AttrDict({"server_version": ""})
         self._server_preferences = AttrDict()
@@ -518,13 +519,13 @@ class ServerDetails(Daemon):
 # TODO: implement callback ability
 class Commands(Daemon):
     """
-    Daemon to send commands to the server
+    Daemon to send commands to the server.
 
     :param torrent_client:
     """
 
     def __init__(self, torrent_client: Connector):
-        super(Commands, self).__init__(torrent_client)
+        super().__init__(torrent_client)
 
         # set a long loop interval since anything sending
         # commands should also be setting the wake alarm
