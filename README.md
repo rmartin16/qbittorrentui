@@ -1,5 +1,5 @@
 qBittorrenTUI
-===============
+=============
 [![PyPI](https://img.shields.io/pypi/v/qbittorrentui?style=flat-square)](https://pypi.org/project/qbittorrentui/)
 ![PyPI - Python Version](https://img.shields.io/pypi/pyversions/qbittorrentui?style=flat-square)
 

@@ -2,5 +2,57 @@
 requires = ["setuptools", "wheel"]
 build-backend = "setuptools.build_meta"
 
+[project]
+name = "qbittorrentui"
+version = "0.3.5"
+requires-python = ">=3.8"
+description = "Console UI for qBittorrent v4.1+"
+authors = [{name = "Russell Martin"}]
+maintainers = [{name = "Russell Martin"}]
+keywords = ["qbittorrent", "console", "terminal", "TUI", "text"]
+classifiers = [
+    "Environment :: Console",
+    "License :: OSI Approved :: MIT License",
+    "Topic :: Communications :: File Sharing",
+    "Topic :: Utilities",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: Implementation :: CPython",
+]
+dynamic = ["readme"]
+dependencies = [
+    "qbittorrent-api",
+    "urwid ==2.5.3",
+    "blinker-alt ==1.5",
+    "panwid ==0.3.5",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pre-commit",
+    "tox",
+]
+
+[project.urls]
+"Homepage" = "https://github.com/rmartin16/qbittorrentui"
+"Source" = "https://github.com/rmartin16/qbittorrentui"
+
+[project.scripts]
+qbittorrentui = "qbittorrentui.__main__:main"
+
+[tool.setuptools.dynamic]
+readme = {file = ["README.md", "LICENSE"], content-type = "text/markdown"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+"*" = ["*.*"]
+
 [tool.isort]
 profile = "black"

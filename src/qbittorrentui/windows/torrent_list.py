@@ -99,7 +99,7 @@ class TorrentListWindow(uw.Pile):
         return key
 
     def torrent_list_init(self, sender):
-        """once connected to qbittorrent, initialize torrent list window."""
+        """Once connected to qbittorrent, initialize torrent list window."""
         server_torrents_changed.connect(receiver=self.update_torrent_list)
         refresh_torrent_list_now.connect(receiver=self.refresh_torrent_list)
         update_torrent_list_now.send("initialization")
@@ -167,7 +167,7 @@ class TorrentList(uw.ListBox):
         self.torrent_list_box_w = torrent_list_box
 
         self.torrent_row_store = {}
-        """master torrent row widget list of all torrents"""
+        """Master torrent row widget list of all torrents."""
 
     def keypress(self, size, key):
         log_keypress(logger, self, key)
@@ -706,7 +706,7 @@ class TorrentListTabsColumns(uw.Columns):
 
         :return:
         """
-        return self.get_focus().base_widget.get_text()[0].lower()
+        return self.focus.base_widget.get_text()[0].lower()
 
     def move_cursor_to_coords(self, size, col, row):
         """Don't change focus based on coords."""
@@ -728,9 +728,9 @@ class TorrentListTabsColumns(uw.Columns):
 
     def keypress(self, size, key):
         log_keypress(logger, self, key)
-        old_tab: uw.AttrMap = self.get_focus()
+        old_tab: uw.AttrMap = self.focus
         key = super().keypress(size, key)
-        new_tab: uw.AttrMap = self.get_focus()
+        new_tab: uw.AttrMap = self.focus
         self.update_focused_tab(old_tab=old_tab, new_tab=new_tab)
         return key
 
@@ -769,25 +769,29 @@ class TorrentOptionsDialog(uw.ListBox):
         self.original_upload_rate_limit = self.torrent.up_limit
         self.upload_rate_limit_w = uw.IntEdit(
             caption="Upload Rate Limit (Kib/s)  : ",
-            default=int(self.original_upload_rate_limit / 1024)
-            if self.original_upload_rate_limit != -1
-            else "",
+            default=(
+                int(self.original_upload_rate_limit / 1024)
+                if self.original_upload_rate_limit != -1
+                else ""
+            ),
         )
         self.original_download_rate_limit = self.torrent.dl_limit
         self.download_rate_limit_w = uw.IntEdit(
             caption="Download Rate Limit (Kib/s): ",
-            default=int(self.original_download_rate_limit / 1024)
-            if self.original_download_rate_limit != -1
-            else "",
+            default=(
+                int(self.original_download_rate_limit / 1024)
+                if self.original_download_rate_limit != -1
+                else ""
+            ),
         )
         # TODO: accommodate share ratio and share time
         self.original_share_ratio = self.torrent.ratio_limit
         self.share_ratio_dropdown_w = panwid.Dropdown(
             items=[("Global Limit", -2), ("Unlimited", -1), ("Specify", 0)],
             label="Share Ratio: ",
-            default=self.torrent.ratio_limit
-            if self.torrent.ratio_limit in [-2, -1]
-            else 0,
+            default=(
+                self.torrent.ratio_limit if self.torrent.ratio_limit in [-2, -1] else 0
+            ),
         )
         if self.torrent.ratio_limit >= 0:
             self.original_share_ratio_percentage = int(self.torrent.ratio_limit * 100)

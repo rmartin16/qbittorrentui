@@ -196,8 +196,8 @@ class Daemon(threading.Thread, ABC):
 
     def __init__(self, torrent_client: Connector):
         super().__init__()
-        self.setDaemon(daemonic=True)
-        self.setName(self.__class__.__name__)
+        self.daemon = True
+        self.name = self.__class__.__name__
         self.stop_request = threading.Event()
         self.wake_up = threading.Event()
         self.reset = threading.Event()
@@ -422,9 +422,9 @@ class SyncTorrent(Daemon):
             store.trackers = trackers
         if sync_torrent_peers:
             if sync_torrent_peers.get("full_update", False):
-                self._torrent_stores[
-                    torrent_hash
-                ].sync_torrent_peers = sync_torrent_peers.get("peers", {})
+                self._torrent_stores[torrent_hash].sync_torrent_peers = (
+                    sync_torrent_peers.get("peers", {})
+                )
             else:
                 for peer in sync_torrent_peers.get("peers_removed", []):
                     store.sync_torrent_peers.pop(peer)
