@@ -17,15 +17,14 @@
 # LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 # THE SOFTWARE.
-
 """
 Functions and Classes from attrdict.
 
-*rmartin Feb 2021
-AttrDict finally broke with Python 3.10 since abstract base classes can no
-longer be imported from collections but should use collections.abc instead.
-Since AttrDict is abandoned, I've consolidated the code here for future use.
-AttrMap and AttrDefault are left for posterity but commented out.
+*rmartin Feb 2021 AttrDict finally broke with Python 3.10 since abstract
+base classes can no longer be imported from collections but should use
+collections.abc instead. Since AttrDict is abandoned, I've consolidated
+the code here for future use. AttrMap and AttrDefault are left for
+posterity but commented out.
 """
 
 from abc import abstractmethod

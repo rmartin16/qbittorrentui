@@ -26,7 +26,7 @@ class ButtonWithoutCursor(uw.Button):
 
     class ButtonLabel(uw.SelectableIcon):
         def set_text(self, label):
-            self.__super.set_text(label)
+            super().set_text(label)
             self._cursor_position = len(label) + 1
 
 

@@ -566,7 +566,7 @@ class TrackersDisplay(uw.ListBox):
         :return:
         """
         start_time = time()
-        trackers = kw.get("trackers", {})
+        trackers = kw.get("trackers", [])
 
         status_map = {
             0: "Disabled",
@@ -790,7 +790,7 @@ class PeersDisplay(uw.ListBox):
                         (
                             max_progress_len,
                             uw.Text(
-                                f"{peer['progress']*100:3.0f}%",
+                                f"{peer['progress'] * 100:3.0f}%",
                                 align=uw.RIGHT,
                                 wrap=uw.CLIP,
                             ),
@@ -829,7 +829,7 @@ class PeersDisplay(uw.ListBox):
                         ),
                         (
                             max_relevance_len,
-                            uw.Text(f"{peer['relevance']*100:3.0f}%", wrap=uw.CLIP),
+                            uw.Text(f"{peer['relevance'] * 100:3.0f}%", wrap=uw.CLIP),
                         ),
                         (uw.Text(peer["files"], wrap=uw.CLIP)),
                     ],
@@ -918,9 +918,11 @@ class ContentDisplay(uw.Pile):
 
         node = self.focused_node_class(
             content=content,
-            path=self.focused_path
-            if self.focused_path is not None
-            else content.root_dir(),
+            path=(
+                self.focused_path
+                if self.focused_path is not None
+                else content.root_dir()
+            ),
         )
         self.walker.set_focus(node)
 
@@ -1067,10 +1069,10 @@ class ContentDisplay(uw.Pile):
         expanded_icon = uw.AttrMap(uw.TreeWidget.expanded_icon, "dirmark")
 
         def __init__(self, node):
-            self.__super.__init__(node)
+            super().__init__(node)
             # insert an extra AttrWrap for our own use
             super().__init__(node)
-            self._w = uw.AttrWrap(self._w, None)
+            self._w = uw.AttrMap(self._w, None)
             # self.flagged = False
             # self.update_w()
             self._w.attr = ""
@@ -1081,16 +1083,10 @@ class ContentDisplay(uw.Pile):
 
         # display widget built here
         def load_inner_widget(self):
-            """
-            {'availability': 1,
-              'is_seed': False,
-              'name': 'Wyatt.Cenacs.Problem.Areas.S01E10.720p.HDTV.x264-aAF[rarbg]/RARBG.txt',
-              'piece_range': [0, 0],
-              'priority': 4,
-              'progress': 1,
-              'size': 30},
-            :return:
-            """
+            """{'availability': 1, 'is_seed': False, 'name': 'Wyatt.Cenacs.Prob
+            lem.Areas.S01E10.720p.HDTV.x264-aAF[rarbg]/RARBG.txt',
+            'piece_range': [0, 0], 'priority': 4, 'progress': 1, 'size': 30},
+            :return:"""
 
             path = self.get_normalized_path()
 
@@ -1174,8 +1170,8 @@ class ContentDisplay(uw.Pile):
             return path
 
         def keypress(self, size, key):
-            """allow subclasses to intercept keystrokes."""
-            key = self.__super.keypress(size, key)
+            """Allow subclasses to intercept keystrokes."""
+            key = super().keypress(size, key)
             if key:
                 key = self.unhandled_keys(size, key)
 

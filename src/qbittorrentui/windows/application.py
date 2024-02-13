@@ -123,18 +123,17 @@ class AppStatusBar(uw.Columns):
         dl_up_text = f"{natural_file_size(server_state.get('dl_info_speed', 0), gnu=True).rjust(6)}/s{DOWN_TRIANGLE}"
         # [<dl limit>]
         if server_state.get("dl_rate_limit", None):
-            dl_up_text = f"{dl_up_text} [{natural_file_size(server_state.get('dl_rate_limit', 0),gnu=True)}/s]"
+            dl_up_text = f"{dl_up_text} [{natural_file_size(server_state.get('dl_rate_limit', 0), gnu=True)}/s]"
         # (<dl size>)
         dl_up_text = f"{dl_up_text} ({natural_file_size(server_state.get('dl_info_data', 0), gnu=True)})"
         # <up rate>⯅
         dl_up_text = f"{dl_up_text} {natural_file_size(server_state.get('up_info_speed', 0), gnu=True).rjust(6)}/s{UP_TRIANGLE}"  # noqa: E501
         # [<up limit>]
         if server_state.get("up_rate_limit", None):
-            dl_up_text = f"{dl_up_text} [{natural_file_size(server_state.get('up_rate_limit', 0),gnu=True)}/s]"
+            dl_up_text = f"{dl_up_text} [{natural_file_size(server_state.get('up_rate_limit', 0), gnu=True)}/s]"
         # (<up size>)
         dl_up_text = f"{dl_up_text} ({natural_file_size(server_state.get('up_info_data', 0), gnu=True)})"
-
-        """ Left column => DHT: # Status: <status> """
+        """Left column => DHT: # Status: <status>"""
         dht_and_status = ""
         if server_state.get("dht_nodes", None):
             dht_and_status = f"DHT: {server_state.get('dht_nodes', None)} "
