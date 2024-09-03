@@ -11,10 +11,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Repo
-        uses: actions/checkout@v4.1.1
+        uses: actions/checkout@v4.1.7
 
       - name: Set up Python
-        uses: actions/setup-python@v5.0.0
+        uses: actions/setup-python@v5.2.0
         with:
           python-version: 3.x
           cache: pip
@@ -29,7 +29,7 @@ jobs:
         run: tox -e package
 
       - name: Upload Package
-        uses: actions/upload-artifact@v4.3.0
+        uses: actions/upload-artifact@v4.4.0
         with:
           name: package
           path: ./dist
@@ -48,18 +48,18 @@ jobs:
         run: echo "version=${GITHUB_REF_NAME#v}" | tee -a ${GITHUB_OUTPUT}
 
       - name: Set up Python
-        uses: actions/setup-python@v5.0.0
+        uses: actions/setup-python@v5.2.0
         with:
           python-version: "3.x"
 
       - name: Get Packages
-        uses: actions/download-artifact@v4.1.7
+        uses: actions/download-artifact@v4.1.8
         with:
           name: package
           path: dist
 
       - name: Create Release
-        uses: ncipollo/release-action@v1.13.0
+        uses: ncipollo/release-action@v1.14.0
         with:
           name: release-${{ steps.build-vars.outputs.version }}
           draft: true
