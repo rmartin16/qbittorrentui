@@ -27,8 +27,8 @@ classifiers = [
 dynamic = ["readme"]
 dependencies = [
     "qbittorrent-api",
-    "urwid ==2.6.15",
-    "blinker-alt ==1.5",
+    "urwid ==2.6.16",
+    "blinker ==1.8.2",
     "panwid ==0.3.5",
 ]
 
