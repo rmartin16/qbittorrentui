@@ -11,10 +11,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Repo
-        uses: actions/checkout@v4.2.0
+        uses: actions/checkout@v4.2.2
 
       - name: Set up Python
-        uses: actions/setup-python@v5.2.0
+        uses: actions/setup-python@v5.3.0
         with:
           python-version: 3.x
           cache: pip
@@ -29,7 +29,7 @@ jobs:
         run: tox -e package
 
       - name: Upload Package
-        uses: actions/upload-artifact@v4.4.0
+        uses: actions/upload-artifact@v4.4.3
         with:
           name: package
           path: ./dist
@@ -48,7 +48,7 @@ jobs:
         run: echo "version=${GITHUB_REF_NAME#v}" | tee -a ${GITHUB_OUTPUT}
 
       - name: Set up Python
-        uses: actions/setup-python@v5.2.0
+        uses: actions/setup-python@v5.3.0
         with:
           python-version: "3.x"
 
