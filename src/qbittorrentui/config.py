@@ -27,10 +27,10 @@ class Configuration(configparser.ConfigParser):
 APPLICATION_NAME = "qBittorrenTUI"
 # when a count of seconds should just be represented as infinity
 SECS_INFINITY = 100 * 24 * 60 * 60  # 100 days
-INFINITY = "\u221E"  # ∞
-DOWN_TRIANGLE = "\u25BC"  # ▼
-UP_TRIANGLE = "\u25B2"  # ▲
-UP_ARROW = "\u21D1"  # ⇑
+INFINITY = "\u221e"  # ∞
+DOWN_TRIANGLE = "\u25bc"  # ▼
+UP_TRIANGLE = "\u25b2"  # ▲
+UP_ARROW = "\u21d1"  # ⇑
 STATE_MAP_FOR_DISPLAY = {
     "pausedUP": "Completed",
     "uploading": "Seeding",
