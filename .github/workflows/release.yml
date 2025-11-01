@@ -29,7 +29,7 @@ jobs:
         run: tox -e package
 
       - name: Upload Package
-        uses: actions/upload-artifact@v4.6.2
+        uses: actions/upload-artifact@v5.0.0
         with:
           name: package
           path: ./dist
@@ -53,7 +53,7 @@ jobs:
           python-version: "3.x"
 
       - name: Get Packages
-        uses: actions/download-artifact@v5.0.0
+        uses: actions/download-artifact@v6.0.0
         with:
           name: package
           path: dist
