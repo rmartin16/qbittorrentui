@@ -41,6 +41,7 @@ class Connector:
         self,
         client_type=ClientType.qbittorrent,
         host="",
+        port="",
         username="",
         password="",
         verify_certificate=True,
@@ -51,6 +52,7 @@ class Connector:
         self.is_logged_in = False
 
         self.host = host
+        self.port = port
         self.username = username
         self.password = password
         self.verify_certificate = verify_certificate
@@ -62,9 +64,18 @@ class Connector:
                 except ConnectorError:
                     pass
 
-    def connect(self, host=None, username=None, password=None, verify_certificate=None):
+    def connect(
+        self,
+        host=None,
+        port=None,
+        username=None,
+        password=None,
+        verify_certificate=None,
+    ):
         if host is None:
             host = self.host
+        if port is None:
+            port = self.port
         if username is None:
             username = self.username
         if password is None:
@@ -75,6 +86,7 @@ class Connector:
             try:
                 self._qbt_client = qbt_Client(
                     host,
+                    port=port if port else None,
                     username=username,
                     password=password,
                     VERIFY_WEBUI_CERTIFICATE=verify_certificate,
