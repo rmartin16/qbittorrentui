@@ -697,23 +697,26 @@ class PeersDisplay(uw.ListBox):
 
         peers_values = peers.values()
         max_country_len = max(
-            map(len, (p["country_code"] for p in peers_values)), default=min_country_len
+            map(len, (p.get("country_code", "") for p in peers_values)),
+            default=min_country_len,
         )
         max_flags_len = max(
-            map(len, (p["flags"] for p in peers_values)), default=min_flags_len
+            map(len, (p.get("flags", "") for p in peers_values)), default=min_flags_len
         )
         max_connection_len = max(
-            map(len, (p["connection"] for p in peers_values)),
+            map(len, (p.get("connection", "") for p in peers_values)),
             default=min_connection_len,
         )
         max_client_len = max(
-            map(len, (p["client"] for p in peers_values)), default=min_client_len
+            map(len, (p.get("client", "") for p in peers_values)),
+            default=min_client_len,
         )
         max_ip_len = max(
-            map(len, (str(p["ip"]) for p in peers_values)), default=min_ip_len
+            map(len, (str(p.get("ip", "")) for p in peers_values)), default=min_ip_len
         )
         max_port_len = max(
-            map(len, (str(p["port"]) for p in peers_values)), default=min_port_len
+            map(len, (str(p.get("port", "")) for p in peers_values)),
+            default=min_port_len,
         )
 
         title_bar = dict(
@@ -771,26 +774,30 @@ class PeersDisplay(uw.ListBox):
                     [
                         (
                             max_country_len,
-                            uw.Text(peer["country_code"].upper(), wrap=uw.CLIP),
+                            uw.Text(peer.get("country_code", "").upper(), wrap=uw.CLIP),
                         ),
                         (
                             max_ip_len,
-                            uw.Text(str(peer["ip"]), wrap=uw.CLIP, align=uw.RIGHT),
+                            uw.Text(
+                                str(peer.get("ip", "")), wrap=uw.CLIP, align=uw.RIGHT
+                            ),
                         ),
                         (
                             max_port_len,
-                            uw.Text(str(peer["port"]), align=uw.RIGHT, wrap=uw.CLIP),
+                            uw.Text(
+                                str(peer.get("port", "")), align=uw.RIGHT, wrap=uw.CLIP
+                            ),
                         ),
                         (
                             max_connection_len,
-                            uw.Text(peer["connection"], wrap=uw.CLIP),
+                            uw.Text(peer.get("connection", ""), wrap=uw.CLIP),
                         ),
-                        (max_flags_len, uw.Text(peer["flags"], wrap=uw.CLIP)),
-                        (max_client_len, uw.Text(peer["client"], wrap=uw.CLIP)),
+                        (max_flags_len, uw.Text(peer.get("flags", ""), wrap=uw.CLIP)),
+                        (max_client_len, uw.Text(peer.get("client", ""), wrap=uw.CLIP)),
                         (
                             max_progress_len,
                             uw.Text(
-                                f"{peer['progress'] * 100:3.0f}%",
+                                f"{peer.get('progress', '') * 100:3.0f}%",
                                 align=uw.RIGHT,
                                 wrap=uw.CLIP,
                             ),
@@ -798,7 +805,7 @@ class PeersDisplay(uw.ListBox):
                         (
                             max_dl_speed_len,
                             uw.Text(
-                                f"{natural_file_size(peer['dl_speed'], gnu=True)}/s",
+                                f"{natural_file_size(peer.get('dl_speed', ''), gnu=True)}/s",
                                 align=uw.RIGHT,
                                 wrap=uw.CLIP,
                             ),
@@ -806,7 +813,7 @@ class PeersDisplay(uw.ListBox):
                         (
                             max_up_speed_len,
                             uw.Text(
-                                f"{natural_file_size(peer['up_speed'], gnu=True)}/s",
+                                f"{natural_file_size(peer.get('up_speed', ''), gnu=True)}/s",
                                 align=uw.RIGHT,
                                 wrap=uw.CLIP,
                             ),
@@ -814,7 +821,7 @@ class PeersDisplay(uw.ListBox):
                         (
                             max_downloaded_len,
                             uw.Text(
-                                natural_file_size(peer["downloaded"], gnu=True),
+                                natural_file_size(peer.get("downloaded", ""), gnu=True),
                                 align=uw.RIGHT,
                                 wrap=uw.CLIP,
                             ),
@@ -822,16 +829,18 @@ class PeersDisplay(uw.ListBox):
                         (
                             max_uploaded_len,
                             uw.Text(
-                                natural_file_size(peer["uploaded"], gnu=True),
+                                natural_file_size(peer.get("uploaded", ""), gnu=True),
                                 align=uw.RIGHT,
                                 wrap=uw.CLIP,
                             ),
                         ),
                         (
                             max_relevance_len,
-                            uw.Text(f"{peer['relevance'] * 100:3.0f}%", wrap=uw.CLIP),
+                            uw.Text(
+                                f"{peer.get('relevance', '') * 100:3.0f}%", wrap=uw.CLIP
+                            ),
                         ),
-                        (uw.Text(peer["files"], wrap=uw.CLIP)),
+                        (uw.Text(peer.get("files", ""), wrap=uw.CLIP)),
                     ],
                     dividechars=1,
                 )
