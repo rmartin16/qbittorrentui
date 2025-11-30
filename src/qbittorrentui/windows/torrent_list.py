@@ -257,6 +257,7 @@ class TorrentList(uw.ListBox):
             "stalledDL": "dark green on default",
             # Explicitly or implicitly paused
             "pausedDL": "dark cyan on default",
+            "stoppedDL": "dark cyan on default",
             "checkingDL": "dark cyan on default",
             "checkingUP": "dark cyan on default",
             "queuedDL": "dark cyan on default",
@@ -274,6 +275,7 @@ class TorrentList(uw.ListBox):
             "forcedUP": "dark blue on default",
             # Complete
             "pausedUP": "dark magenta on default",
+            "stoppedUP": "dark magenta on default",
         }
         return attr_map.get(torrent.get("state"), "")
 
