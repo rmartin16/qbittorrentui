@@ -37,7 +37,19 @@ In most cases, this should allow you to run the application simply with the `qbi
 
 Configuration
 -------------
-Connections can be pre-defined within a configuration file (modeled after default.ini). Specify the configuration file using --config_file. Each section in the file will be presented as a separate instance to connect to.
+Connections can be pre-defined within a configuration file (modeled after `default.ini`). Each section in the file is presented as a separate server to connect to.
+
+Configuration file lookup order:
+1. `--config_file /path/to/config.ini` (highest priority)
+2. Platform default config directory (e.g. `~/.config/qbittorrentui/qbittorrentui.ini` on Linux, `~/Library/Application Support/qbittorrentui/qbittorrentui.ini` on macOS)
+
+Minimal configuration file section:
+```
+[localhost]
+HOST = localhost
+USERNAME = admin
+PASSWORD = adminadmin
+```
 
 Sample configuration file section:
 ```
@@ -54,8 +66,8 @@ TORRENT_LIST_PROGRESS_BAR_LENGTH = 40
 DO_NOT_VERIFY_WEBUI_CERTIFICATE = 1
 ```
 
-Only HOST, USERNAME, AND PASSWORD are required.
-DO_NOT_VERIFY_WEBUI_CERTIFICATE is necessary if the certificate is untrusted (e.g. self-signed).
+Only `HOST`, `USERNAME`, and `PASSWORD` are required.
+`DO_NOT_VERIFY_WEBUI_CERTIFICATE` is necessary if the certificate is untrusted (e.g. self-signed).
 
 TODO/Wishlist
 -------------

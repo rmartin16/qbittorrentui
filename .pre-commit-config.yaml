@@ -11,25 +11,19 @@ repos:
       - id: trailing-whitespace
 
   - repo: https://github.com/PyCQA/isort
-    rev: 7.0.0
+    rev: 8.0.1
     hooks:
       - id: isort
         additional_dependencies: [toml]
 
   - repo: https://github.com/asottile/pyupgrade
-    rev: v3.21.0
+    rev: v3.21.2
     hooks:
       - id: pyupgrade
-        args: [--py38-plus]
-
-  - repo: https://github.com/myint/docformatter
-    rev: v1.7.7
-    hooks:
-      - id: docformatter
-        args: [--in-place, --pre-summary-newline]
+        args: [--py310-plus]
 
   - repo: https://github.com/psf/black-pre-commit-mirror
-    rev: 25.9.0
+    rev: 26.5.1
     hooks:
       - id: black
         language_version: python3
