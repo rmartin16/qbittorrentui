@@ -27,8 +27,10 @@ logger = logging.getLogger(__name__)
 
 class DaemonManager(threading.Thread):
     """
-    Background daemon manager. Responsible for stopping and starting daemons,
-    providing daemon interfaces to UI, and facilitate signaling of the UI.
+    Background daemon manager.
+
+    Responsible for stopping and starting daemons, providing daemon
+    interfaces to UI, and facilitate signaling of the UI.
 
     :param torrent_client:
     :param daemon_signal_fd:

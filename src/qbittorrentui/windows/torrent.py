@@ -1096,7 +1096,6 @@ class ContentDisplay(uw.Pile):
             lem.Areas.S01E10.720p.HDTV.x264-aAF[rarbg]/RARBG.txt',
             'piece_range': [0, 0], 'priority': 4, 'progress': 1, 'size': 30},
             :return:"""
-
             path = self.get_normalized_path()
 
             if path == "":
