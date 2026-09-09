@@ -1186,9 +1186,14 @@ class TorrentAddDialog(uw.ListBox):
             default="<no category>",
             auto_complete=True,
         )
-        self.start_torrent_w = uw.CheckBox(
-            "Start Torrent", state=(not prefs.start_paused_enabled)
-        )
+        if "add_stopped_enabled" in prefs:
+            start_torrent = not prefs.add_stopped_enabled
+        elif "start_paused_enabled" in prefs:
+            start_torrent = not prefs.start_paused_enabled
+        else:
+            start_torrent = True
+
+        self.start_torrent_w = uw.CheckBox("Start Torrent", state=start_torrent)
         self.download_in_sequential_order_w = uw.CheckBox(
             "Download in Sequential Order"
         )
